@@ -295,7 +295,7 @@ def normalize(raw, flat, fist):
 # Step 5: Recognize
 # ---------------------------------------------------------------------------
 def recognize(bends):
-     """Return the best-matching sign and a confidence score (0.0 to 1.0).
+    """Return the best-matching sign and a confidence score (0.0 to 1.0).
 
     TEMPORARY: this stands in for the neural network. It compares the
     hand to a stored example of each sign and picks the closest one.
@@ -303,8 +303,8 @@ def recognize(bends):
     away from that example. The trained network will replace the code
     below and return the same two values.
     """
-best_sign, best_distance = None, None
-for sign, reference in REFERENCES.items():
+    best_sign, best_distance = None, None
+    for sign, reference in REFERENCES.items():
         # Distance = average difference between the hand and this sign's
         # example, across all fingers. Smaller means a closer match.
         distance = float(np.mean(np.abs(bends - np.array(reference))))
@@ -312,7 +312,7 @@ for sign, reference in REFERENCES.items():
         if best_distance is None or distance < best_distance:
             best_sign, best_distance = sign, distance
     # Turn the distance into a confidence: closer match = higher score.
-return best_sign, 1.0 - best_distance
+    return best_sign, 1.0 - best_distance
 
 
 # ---------------------------------------------------------------------------

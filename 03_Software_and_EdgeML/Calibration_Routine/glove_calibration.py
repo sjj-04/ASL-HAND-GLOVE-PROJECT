@@ -25,7 +25,7 @@ How to run:
     py glove_calibration.py --mock    # on any computer, with a pretend glove (mock_hardware.py)
 
 How to test if a finger is significantly out of place during calibration:
-    py glove_calibration.py --mock --stuck-finger [Thumb, Index, Middle, Ring or Pinky]
+    py glove_calibration.py --mock --stuck-finger [Thumb, Index, Middle, Ring, or Pinky]
 """
  
 import argparse

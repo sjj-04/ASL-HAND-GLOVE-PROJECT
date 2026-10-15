@@ -20,9 +20,12 @@ Install numpy (a python library) with following commands:
     py -m pip install numpy
      
 How to run:
-    python3 glove_calibration.py           # on the Pi, with the real glove
+    py glove_calibration.py           # on the Pi, with the real glove
                                            OR
-    python3 glove_calibration.py --mock    # on any computer, with a pretend glove (mock_hardware.py)
+    py glove_calibration.py --mock    # on any computer, with a pretend glove (mock_hardware.py)
+
+How to test if a finger is significantly out of place during calibration:
+    py glove_calibration.py --mock --stuck-finger [Thumb, Index, Middle, Ring or Pinky]
 """
  
 import argparse

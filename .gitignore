@@ -1,0 +1,6 @@
+# Python's auto-generated speed-up files
+__pycache__/
+
+# Calibration files the program creates (they're per-user)
+calibration*.json
+*.tmp

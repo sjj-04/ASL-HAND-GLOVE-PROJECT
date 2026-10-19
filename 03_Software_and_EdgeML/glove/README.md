@@ -2,7 +2,7 @@
 
 Runs on the Raspberry Pi Zero in the wrist enclosure and follows the main program flowchart in Section 6 of the Design Specification.
 
-**This folder uses `Calibration_Routine`, which goes inside it** (`glove/Calibration_Routine/`). Calibration, the ADC, the wrist display and the sampler all come from `glove_calibration.py` there, unchanged, so calibrating with either program does the same thing and saves the same `calibration.json`.
+**This folder uses `Calibration_Routine` (`glove/Calibration_Routine/`). Calibration, the ADC, the wrist display and the sampler all come from `glove_calibration.py` there, unchanged, so calibrating with either program does the same thing and saves the same `calibration.json`.
 
 | File | What it does |
 |---|---|

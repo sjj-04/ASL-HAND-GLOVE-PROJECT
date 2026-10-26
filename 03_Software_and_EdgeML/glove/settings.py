@@ -20,7 +20,7 @@ MIN_RANGE, MAX_CAL_TRIES, MESSAGE_SECONDS = routine.MIN_RANGE, routine.MAX_CAL_T
 CAL_FILE, MOCK_CAL_FILE = routine.CAL_FILE, routine.MOCK_CAL_FILE     # saved in Calibration_Routine/
 
 # Wiring ---------------------------------------------------------------------
-SELECTION_BUTTON_PIN = 27      # BCM GPIO number (physical pin 13)
+SELECTION_BUTTON_PIN = 26      # BCM GPIO number (physical pin 37)
 BUTTON_BOUNCE_SECONDS = 0.05   # ignore the extra contacts a button makes in the 50 ms after a press
 
 # Sampling -------------------------------------------------------------------

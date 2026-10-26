@@ -94,7 +94,7 @@ class MockMCP3208:
 
 
 class MockOLED:
-    """Stands in for the wrist OLED: prints each message and shows it to the pretend hand."""
+    """Stands in for the wrist LCD: prints each message and shows it to the pretend hand."""
 
     def __init__(self, hand):
         self.hand = hand
@@ -106,7 +106,7 @@ class MockOLED:
             return                                      # already on screen
         self.shown = (title, detail)
         self.history.append(self.shown)
-        print(f"[OLED] {title:<12} {detail}".rstrip())
+        print(f"[LCD] {title:<12} {detail}".rstrip())
         self.hand.follow(title, detail)
 
 

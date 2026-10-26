@@ -43,10 +43,9 @@ import numpy as np
 try:
     import spidev                                   # SPI: talks to the MCP3208 ADC
     from gpiozero import Button                     # GPIO: the pushbuttons
-    from luma.core.interface.serial import i2c      # I2C: talks to the wrist OLED
-    from luma.core.render import canvas
-    from luma.oled.device import ssd1306
-    from PIL import ImageFont
+    import lgpio                                    # GPIO: drives the wrist LCD's 8-bit bus
+    from PIL import Image, ImageDraw, ImageFont     # draws each screen before it goes to the LCD
+
     PI_LIBRARIES_FOUND = True
 except ImportError:
     PI_LIBRARIES_FOUND = False

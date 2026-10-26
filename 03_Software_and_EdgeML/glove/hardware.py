@@ -32,7 +32,7 @@ def open_hardware():
 
 class WristDisplay(routine.WristDisplay):
     """
-    Calibration_Routine's wrist OLED, but it skips messages that are already on screen,
+    Calibration_Routine's wrist LCD, but it skips messages that are already on screen,
     so the practice loop doesn't redraw it 20 times per second.
     """
     def __init__(self):

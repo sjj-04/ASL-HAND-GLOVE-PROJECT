@@ -64,7 +64,15 @@ FINGERS = ["Thumb", "Index", "Middle", "Ring", "Pinky"]
 CALIBRATION_BUTTON_PIN = 17   # physical pin 11
 BUTTON_PULL_UP = True         # True: button wired between the pin and GND (no resistor needed)
                               # False: button wired between the pin and 3.3 V
-OLED_I2C_ADDRESS = 0x3C       # most 128x64 OLEDs; some use 0x3D (check with: i2cdetect -y 1)
+                              
+# Wrist LCD (Winstar, KS0108), wired straight to the Pi
+LCD_CS1_PIN = 17              # physical pin 11, /CS1: left half of the screen
+LCD_CS2_PIN = 27              # physical pin 13, /CS2: right half
+LCD_CS_ACTIVE_LOW = True      # R9/R10 pull /CS1 and /CS2 up, so a low pin selects that half
+LCD_DI_PIN = 22               # physical pin 15, D/I: low for a command, high for pixels
+LCD_E_PIN = 23                # physical pin 16, E: the LCD reads the byte as this goes low
+LCD_RST_PIN = 24              # physical pin 18, RST: low holds the LCD in reset
+LCD_DATA_PINS = [5, 6, 12, 13, 16, 19, 20, 21]   # DB0-DB7 (physical pins 29, 31, 32, 33, 36, 35, 38, 40)
 SPI_SPEED_HZ = 1_000_000      # the MCP3208 allows up to 2 MHz at 5 V; go lower if readings are noisy
  
 # Sampling: all five sensors, 200 times per second

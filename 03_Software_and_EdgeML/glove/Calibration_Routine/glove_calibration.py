@@ -119,30 +119,69 @@ class MCP3208:
  
  
 class WristDisplay:
-    """The 128x64 OLED on the wrist (SSD1306, over I2C).
- 
+    """The Winstar 128x64 graphic LCD on the wrist (KS0108, 8-bit parallel).
+
+    The screen is two 64x64 halves: /CS1 selects the left half and /CS2 the right.
     Each message has a title line and a detail line, like "CALIBRATING" and
     "Hold hand FLAT". Messages are also printed in the terminal, which helps
-    while debugging and keeps things working before the OLED is wired up.
+    while debugging and keeps things working before the LCD is wired up.
     """
- 
+
     def __init__(self):
         try:
-            self.device = ssd1306(i2c(port=1, address=OLED_I2C_ADDRESS))
-            self.device.persist = True    # keep the last message (like FAULT) up after the program stops
-        except Exception as error:        # not wired yet, wrong address, I2C turned off...
-            print(f"Wrist OLED not found ({error}). Messages will only be printed here.")
-            self.device = None
+            self.chip = lgpio.gpiochip_open(0)
+            deselect = 1 if LCD_CS_ACTIVE_LOW else 0
+            lgpio.gpio_claim_output(self.chip, LCD_CS1_PIN, deselect)
+            lgpio.gpio_claim_output(self.chip, LCD_CS2_PIN, deselect)
+            for pin in [LCD_DI_PIN, LCD_E_PIN, LCD_RST_PIN]:
+                lgpio.gpio_claim_output(self.chip, pin, 0)
+            lgpio.group_claim_output(self.chip, LCD_DATA_PINS)   # DB0-DB7, written as one byte
+            time.sleep(0.001)                 # RST starts low, which resets the LCD...
+            lgpio.gpio_write(self.chip, LCD_RST_PIN, 1)          # ...then let it run (R21 holds it low otherwise)
+            time.sleep(0.01)
+            for half in (0, 1):
+                self.select(half)
+                self.write(0x3F, data=False)  # display on
+                self.write(0xC0, data=False)  # the top of the screen is RAM line 0
+        except Exception as error:            # not wired yet, pin already in use, lgpio missing...
+            print(f"Wrist LCD not found ({error}). Messages will only be printed here.")
+            self.chip = None
         self.title_font = load_font(15)
         self.detail_font = load_font(14)
- 
+
     def message(self, title, detail=""):
-        print(f"[OLED] {title:<12} {detail}".rstrip())
-        if self.device is None:
+        print(f"[LCD] {title:<12} {detail}".rstrip())
+        if self.chip is None:
             return
-        with canvas(self.device) as draw:     # draw the new screen, then send it to the OLED
-            draw.text((0, 4), title, font=self.title_font, fill="white")
-            draw.text((0, 34), detail, font=self.detail_font, fill="white")
+        image = Image.new("1", (128, 64))     # draw the new screen in memory first
+        draw = ImageDraw.Draw(image)
+        draw.text((0, 4), title, font=self.title_font, fill=1)
+        draw.text((0, 34), detail, font=self.detail_font, fill=1)
+        # The LCD stores the screen as 8 pages of 8 pixel rows. Each byte it
+        # receives is one column of a page, with the top pixel in bit 0.
+        pixels = np.array(image, dtype=np.uint8).reshape(8, 8, 128)
+        pages = np.packbits(pixels, axis=1, bitorder="little")[:, 0, :]
+        for half in (0, 1):
+            self.select(half)
+            for page in range(8):
+                self.write(0xB8 | page, data=False)          # go to this page
+                self.write(0x40, data=False)                 # and to column 0
+                for byte in pages[page, half * 64:(half + 1) * 64]:
+                    self.write(int(byte), data=True)         # the column moves right by itself
+
+    def select(self, half):
+        """Talk to the left half (0) or the right half (1) of the screen."""
+        on, off = (0, 1) if LCD_CS_ACTIVE_LOW else (1, 0)
+        lgpio.gpio_write(self.chip, LCD_CS1_PIN, on if half == 0 else off)
+        lgpio.gpio_write(self.chip, LCD_CS2_PIN, on if half == 1 else off)
+
+    def write(self, value, data):
+        """Send one byte: a command (data=False) or 8 pixels (data=True)."""
+        lgpio.gpio_write(self.chip, LCD_DI_PIN, 1 if data else 0)
+        lgpio.group_write(self.chip, LCD_DATA_PINS[0], value)   # bit 0 to DB0 ... bit 7 to DB7
+        lgpio.gpio_write(self.chip, LCD_E_PIN, 1)
+        lgpio.gpio_write(self.chip, LCD_E_PIN, 0)               # the LCD reads the byte as E goes low
+
  
  
 def load_font(size):

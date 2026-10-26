@@ -61,10 +61,10 @@ except ImportError:
 FINGERS = ["Thumb", "Index", "Middle", "Ring", "Pinky"]
  
 # Pins are BCM GPIO numbers, not physical pin numbers.
-CALIBRATION_BUTTON_PIN = 17   # physical pin 11
+CALIBRATION_BUTTON_PIN = 25   # physical pin 22 (GPIO17 is now the LCD's /CS1)
 BUTTON_PULL_UP = True         # True: button wired between the pin and GND (no resistor needed)
                               # False: button wired between the pin and 3.3 V
-                              
+
 # Wrist LCD (Winstar, KS0108), wired straight to the Pi
 LCD_CS1_PIN = 17              # physical pin 11, /CS1: left half of the screen
 LCD_CS2_PIN = 27              # physical pin 13, /CS2: right half

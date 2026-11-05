@@ -19,9 +19,20 @@ SAMPLE_HZ, WINDOW, LOOP_HZ = routine.SAMPLE_HZ, routine.WINDOW, routine.LOOP_HZ
 MIN_RANGE, MAX_CAL_TRIES, MESSAGE_SECONDS = routine.MIN_RANGE, routine.MAX_CAL_TRIES, routine.MESSAGE_SECONDS
 CAL_FILE, MOCK_CAL_FILE = routine.CAL_FILE, routine.MOCK_CAL_FILE     # saved in Calibration_Routine/
 
+# Wrist LCD wiring (Winstar WDG0151: two 64x64 halves), BCM GPIO numbers.
+# glove_calibration.py lists the physical pin next to each one.
+LCD_CS1_PIN, LCD_CS2_PIN = routine.LCD_CS1_PIN, routine.LCD_CS2_PIN      # /CS1 left half, /CS2 right half
+LCD_CS_ACTIVE_LOW = routine.LCD_CS_ACTIVE_LOW                           # True: a low pin selects that half
+LCD_DI_PIN, LCD_E_PIN, LCD_RST_PIN = routine.LCD_DI_PIN, routine.LCD_E_PIN, routine.LCD_RST_PIN
+LCD_DATA_PINS = routine.LCD_DATA_PINS                                   # DB0-DB7, in that order
+
 # Wiring ---------------------------------------------------------------------
 SELECTION_BUTTON_PIN = 26      # BCM GPIO number (physical pin 37)
 BUTTON_BOUNCE_SECONDS = 0.05   # ignore the extra contacts a button makes in the 50 ms after a press
+
+# Wrist LCD ------------------------------------------------------------------
+LCD_REFRESH_HZ = 10            # how often the live CH0-CH4 screen redraws (Test 2.6 needs at least 10)
+STARTUP_IMAGE_SECONDS = 1.5    # how long the start-up image stays up (Tests 2.4 and 2.8 look for it)
 
 # Sampling -------------------------------------------------------------------
 MEDIAN_SAMPLES = 5             # readings in the spike filter (25 ms)

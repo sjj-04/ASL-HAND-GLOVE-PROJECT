@@ -9,7 +9,8 @@ import time
 
 import numpy as np
 
-from settings import FINGERS, MEDIAN_SAMPLES, REFERENCES, WINDOW
+from settings import (FINGERS, LCD_CS1_PIN, LCD_CS2_PIN, LCD_CS_ACTIVE_LOW, LCD_DATA_PINS, LCD_DI_PIN,
+                      LCD_E_PIN, LCD_RST_PIN, MEDIAN_SAMPLES, REFERENCES, WINDOW)
 
 # Raw readings a typical hand gives, Thumb to Pinky. Straight fingers read HIGHER:
 # bending raises a flex sensor's resistance, which lowers its divider's voltage.
@@ -108,6 +109,152 @@ class MockOLED:
         self.history.append(self.shown)
         print(f"[LCD] {title:<12} {detail}".rstrip())
         self.hand.follow(title, detail)
+
+
+class FakeLcdHalf:
+    """One half of the wrist LCD (one KS0108 controller): a 64x64 area of the screen.
+
+    Its memory is 8 pages x 64 columns. Each byte is one column of one page,
+    8 pixels tall, with the top pixel in bit 0.
+    """
+
+    def __init__(self):
+        self.ram = np.zeros((8, 64), dtype=np.uint8)
+        self.page = 0                                   # which page the next byte goes to (0-7)
+        self.column = 0                                 # which column the next byte goes to (0-63)
+        self.on = False                                 # the screen starts off, like the real LCD
+        self.start_line = 0                             # which memory row shows at the top of the screen
+
+    def command(self, value):
+        """Carry out one command byte. Checked from the most specific top bits down."""
+        if value & 0xC0 == 0xC0:                        # 11xx xxxx: display start line
+            self.start_line = value & 0x3F
+        elif value & 0xF8 == 0xB8:                      # 1011 1xxx: set page
+            self.page = value & 0x07
+        elif value & 0xC0 == 0x40:                      # 01xx xxxx: set column
+            self.column = value & 0x3F
+        elif value & 0xFE == 0x3E:                      # 0011 111x: display on (1) or off (0)
+            self.on = bool(value & 0x01)
+        # Anything else is ignored, like the real chip.
+
+    def data(self, value):
+        """Store 8 pixels, then move one column right. Past column 63 it wraps to 0 on the same page."""
+        self.ram[self.page, self.column] = value
+        self.column = (self.column + 1) & 0x3F
+
+    def reset(self):
+        """What RST does: the display turns off and starts at line 0. The memory is NOT cleared."""
+        self.on = False
+        self.start_line = 0
+
+    def pixels(self):
+        """This half as a 64x64 array of True/False, as it looks on the glass."""
+        if not self.on:
+            return np.zeros((64, 64), dtype=bool)
+        rows = np.unpackbits(self.ram[:, None, :], axis=1, bitorder="little").reshape(64, 64)
+        return np.roll(rows, -self.start_line, axis=0).astype(bool)
+
+
+class FakeGlcdBus:
+    """Stands in for the lgpio library, and behind it the wrist LCD's 20 pins.
+
+    The display code calls lgpio functions to set pins. This class keeps every
+    pin's level and acts like the real LCD: when E goes from high to low, each
+    half whose chip select is asserted reads the byte on DB0-DB7, as a command
+    (D/I low) or as pixels (D/I high). A half that isn't selected ignores it,
+    so a wrong-half bug shows up on a laptop the same way it would on the glove.
+
+    Use it in a test the same way test_hardware.py swaps in its fake SPI:
+        with mock.patch.object(settings.routine, "lgpio", FakeGlcdBus(), create=True):
+    """
+
+    def __init__(self):
+        self.halves = [FakeLcdHalf(), FakeLcdHalf()]    # 0 = left (/CS1), 1 = right (/CS2)
+        self.levels = {}                                # pin number -> 0 or 1, for every claimed pin
+        self.groups = {}                                # first pin of a group -> all its pins, in bit order
+        self.log = []                                   # every byte the LCD took: (half, is_data, value)
+
+    # The lgpio functions the display code uses ---------------------------------
+
+    def gpiochip_open(self, chip):
+        return 0                                        # a handle; there is only one chip
+
+    def gpiochip_close(self, handle):
+        pass
+
+    def gpio_claim_output(self, handle, gpio, level=0, lFlags=0):
+        self._claim(gpio)
+        self._set(gpio, level)
+
+    def group_claim_output(self, handle, gpios, levels=(0,), lFlags=0):
+        for gpio in gpios:
+            self._claim(gpio)
+        self.groups[gpios[0]] = list(gpios)
+        for bit, gpio in enumerate(gpios):
+            self._set(gpio, levels[bit] if bit < len(levels) else 0)
+
+    def gpio_write(self, handle, gpio, level):
+        if gpio not in self.levels:
+            raise RuntimeError(f"GPIO {gpio} written before it was claimed")
+        self._set(gpio, level)
+
+    def group_write(self, handle, gpio, group_bits, group_mask=0xFF):
+        for bit, pin in enumerate(self.groups[gpio]):   # bit 0 goes to the group's first pin, and so on
+            if group_mask >> bit & 1:
+                self._set(pin, group_bits >> bit & 1)
+
+    def gpio_free(self, handle, gpio):
+        self.levels.pop(gpio, None)
+
+    def group_free(self, handle, gpio):
+        for pin in self.groups.pop(gpio, []):
+            self.levels.pop(pin, None)
+
+    # What the LCD does when its pins change ------------------------------------
+
+    def _claim(self, gpio):
+        if gpio in self.levels:
+            raise RuntimeError(f"GPIO busy: {gpio} is already claimed")   # what lgpio says too
+
+    def _set(self, gpio, level):
+        old, new = self.levels.get(gpio), 1 if level else 0
+        self.levels[gpio] = new
+        if gpio == LCD_E_PIN and old == 1 and new == 0:
+            self._latch()                               # the LCD reads the byte as E goes low
+        elif gpio == LCD_RST_PIN and new == 0 and old != 0:
+            for half in self.halves:                    # RST pulled low resets both halves
+                half.reset()
+
+    def _latch(self):
+        if self.levels.get(LCD_RST_PIN, 0) == 0:
+            return                                      # held in reset: the LCD ignores everything
+        value = sum(self.levels.get(pin, 0) << bit for bit, pin in enumerate(LCD_DATA_PINS))
+        is_data = self.levels.get(LCD_DI_PIN, 0) == 1
+        selected_level = 0 if LCD_CS_ACTIVE_LOW else 1
+        for index, cs_pin in enumerate((LCD_CS1_PIN, LCD_CS2_PIN)):
+            if self.levels.get(cs_pin) == selected_level:
+                half = self.halves[index]
+                half.data(value) if is_data else half.command(value)
+                self.log.append((index, is_data, value))
+
+    # For tests and --mock runs ----------------------------------------------------
+
+    def pixels(self):
+        """The whole screen as a 64x128 array of True/False (row, column), as it looks on the glass."""
+        return np.hstack([half.pixels() for half in self.halves])
+
+    def bytes_written(self, data_only=True):
+        """How many bytes the LCD has taken: pixel bytes only, or commands too."""
+        return sum(1 for _, is_data, _ in self.log if is_data or not data_only)
+
+    def preview(self):
+        """The screen as text: each character is 2 pixel rows (top, bottom), so 32 lines x 128 columns."""
+        pixels = self.pixels()
+        blocks = {(False, False): " ", (True, False): "\u2580", (False, True): "\u2584", (True, True): "\u2588"}
+        lines = ["".join(blocks[(bool(top), bool(bottom))] for top, bottom in zip(pixels[row], pixels[row + 1]))
+                 for row in range(0, 64, 2)]
+        edge = "+" + "-" * 128 + "+"
+        return "\n".join([edge] + [f"|{line}|" for line in lines] + [edge])
 
 
 class MockButton:

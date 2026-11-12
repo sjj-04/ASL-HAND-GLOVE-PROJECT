@@ -1,0 +1,18 @@
+[Unit]
+Description=ECET400 ASL glove Winstar display and flex acquisition
+After=local-fs.target
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/asl_glove
+StateDirectory=asl-glove
+ExecStart=/usr/bin/python3 /opt/asl_glove/asl_glove.py live --calibration /var/lib/asl-glove/flex_calibration.json
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=10
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

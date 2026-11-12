@@ -33,12 +33,9 @@ PRACTICE_SCRIPT = [
 
 
 def open_mock_glove(stuck_finger=None, unplugged_finger=None):
-    """The pretend glove. Returns the same four parts as hardware.open_hardware()."""
+    """The pretend glove. Returns the same two parts as hardware.open_hardware()."""
     hand = PretendHand(stuck_finger, unplugged_finger)
-    calibration_button, selection_button = MockButton(), MockButton()
-    watch_keyboard(calibration_button, selection_button)
-    print("Pretend glove: type c + Enter for the Calibration button, s + Enter for Selection. Ctrl+C quits.")
-    return MockMCP3208(hand), MockOLED(hand), calibration_button, selection_button
+    return MockMCP3208(hand), MockOLED(hand)
 
 
 class PretendHand:

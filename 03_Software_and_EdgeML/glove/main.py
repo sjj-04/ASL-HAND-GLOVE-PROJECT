@@ -32,21 +32,14 @@ def main():
 
     if args.mock:
         from mock_glove import open_mock_glove
-        adc, display, calibration_button, selection_button = open_mock_glove(
-            args.stuck_finger, args.unplugged_finger)
-        cal_file = settings.MOCK_CAL_FILE            # --mock never overwrites the real calibration
+        adc, display = open_mock_glove(args.stuck_finger, args.unplugged_finger)
+        cal_file = settings.MOCK_CAL_FILE
     elif PI_LIBRARIES_FOUND:
-        adc, display, calibration_button, selection_button = open_hardware()
+        adc, display = open_hardware()
         cal_file = settings.CAL_FILE
     else:
         raise SystemExit("Raspberry Pi libraries not found. Install them (see README.md), "
                          "or use the pretend glove:  python3 main.py --mock")
-
-    # A button press only raises a flag, and the practice loop does the work.
-    # Running a 7-second calibration inside a button callback would freeze gpiozero.
-    calibration_pressed, selection_pressed = threading.Event(), threading.Event()
-    calibration_button.when_pressed = calibration_pressed.set
-    selection_button.when_pressed = selection_pressed.set
 
     sampler = Sampler(adc)
     sampler.start()                                  # read all five sensors 200 times per second
@@ -54,9 +47,7 @@ def main():
         calibration = start_up(sampler, display, cal_file)
         if calibration is None:
             raise SystemExit("Stopped at start-up. The wrist display shows why.")
-        if args.mock:
-            selection_pressed.set()                  # the pretend user starts the lesson right away
-        practice_loop(sampler, display, calibration, cal_file, calibration_pressed, selection_pressed)
+        practice_loop(sampler, display, calibration)
     except KeyboardInterrupt:
         print("\nStopped by user.")
     finally:
@@ -82,33 +73,20 @@ def start_up(sampler, display, cal_file):
     return calibration
 
 
-def practice_loop(sampler, display, calibration, cal_file, calibration_pressed, selection_pressed):
+def practice_loop(sampler, display, calibration):
     """Sheets 2 and 3: one pass 20 times per second, until Ctrl+C."""
     lesson = LessonManager()
+    lesson.select_next()          # no buttons: the lesson starts right after READY
     hold_timer = HoldTimer()
     while True:
-        if calibration_pressed.is_set():                 # "Calibration button pressed?"
-            new_calibration = run_calibration(sampler, display, cal_file)
-            if new_calibration is not None:
-                calibration = new_calibration
-            else:                                        # after a FAULT, keep the old calibration
-                time.sleep(settings.MESSAGE_SECONDS)     # and leave FAULT up long enough to read
-            calibration_pressed.clear()                  # ignore presses made while calibrating
-            hold_timer.reset()
-
-        if selection_pressed.is_set():                   # "Selection button pressed?"
-            selection_pressed.clear()
-            lesson.select_next()                         # start the lesson or go to the next sign
-            hold_timer.reset()
-
         title, detail, success = practice_step(
             sampler.newest(), calibration, lesson.target, hold_timer, time.monotonic())
         display.message(title, detail)
 
-        if success:                                      # held correctly for 1 second
-            lesson.report_success()                      # the lesson marks it complete, sets the next target
+        if success:               # held correctly long enough
+            lesson.report_success()   # moves to the next letter
             hold_timer.reset()
-            time.sleep(settings.SUCCESS_SECONDS)         # leave CORRECT up long enough to read
+            time.sleep(settings.SUCCESS_SECONDS)
 
         time.sleep(1 / settings.LOOP_HZ)
 

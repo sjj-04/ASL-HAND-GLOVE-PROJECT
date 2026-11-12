@@ -1,0 +1,16 @@
+[Unit]
+Description=ASL Winstar touchscreen and personalized A B C Free Mode
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=simple
+WorkingDirectory=%h/asl-freemode/ASL_PiZero_FreeMode
+ExecStart=/usr/bin/python3 %h/asl-freemode/ASL_PiZero_FreeMode/free_mode.py
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=10
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target

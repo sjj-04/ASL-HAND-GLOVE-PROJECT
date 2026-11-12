@@ -15,19 +15,12 @@ from settings import routine
 
 PI_LIBRARIES_FOUND = routine.PI_LIBRARIES_FOUND
 MCP3208 = routine.MCP3208                            # the ADC, unchanged
-if PI_LIBRARIES_FOUND:
-    from gpiozero import Button
+
 
 
 def open_hardware():
-    """
-    Connect to the real glove. Returns the ADC, the wrist display and both buttons.
-    """
-    calibration_button = Button(settings.CALIBRATION_BUTTON_PIN, pull_up=settings.BUTTON_PULL_UP,
-                                bounce_time=settings.BUTTON_BOUNCE_SECONDS)
-    selection_button = Button(settings.SELECTION_BUTTON_PIN, pull_up=settings.BUTTON_PULL_UP,
-                              bounce_time=settings.BUTTON_BOUNCE_SECONDS)
-    return MCP3208(), WristDisplay(), calibration_button, selection_button
+    """Connect to the real glove. Returns the ADC and the wrist display."""
+    return MCP3208(), WristDisplay()
 
 
 class WristDisplay(routine.WristDisplay):

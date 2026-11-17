@@ -37,45 +37,100 @@ def recognize(bends):
     return best_sign, 1.0 - best_distance               # closer match = higher confidence
 
 
-def evaluate(bends, target, recognized, confidence):
-    """Grade one attempt at the target sign. Returns "CORRECT", "ADJUST: [finger]" or "TRY AGAIN"."""
+def match_score(bends, target):
+    """Match score, 0 to 100: 100 x (1 - average finger error). 100 is a perfect copy of the target."""
     errors = np.abs(bends - np.array(settings.REFERENCES[target]))
-    out_of_place = [finger for finger, error in zip(settings.FINGERS, errors)
-                    if error >= settings.ADJUST_TOLERANCE]
+    return 100.0 * (1.0 - float(np.mean(errors)))
 
-    # Correct needs both checks: confident it's the target sign, AND no finger out of place.
-    if recognized == target and confidence >= settings.ACCEPT_CONFIDENCE and not out_of_place:
+
+def evaluate(bends, target, recognized=None, confidence=None):
+    """Grade one attempt at the target sign. Returns "CORRECT", "ADJUST: [finger]" or "TRY AGAIN".
+
+    CORRECT needs a match score of at least ACCEPT_SCORE and every finger within
+    ADJUST_TOLERANCE of the target (the TC-DELIV-03 acceptance rule).
+    recognized and confidence are kept for the free-practice display only.
+    """
+    errors = np.abs(bends - np.array(settings.REFERENCES[target]))
+    tiny = 1e-9                                          # ignore floating-point rounding at the limits
+    out_of_place = [finger for finger, error in zip(settings.FINGERS, errors)
+                    if error > settings.ADJUST_TOLERANCE + tiny]
+
+    if match_score(bends, target) >= settings.ACCEPT_SCORE - tiny and not out_of_place:
         return "CORRECT"
     if len(out_of_place) == 1:                           # "One finger clearly out of place?"
         return f"ADJUST: {out_of_place[0]}"
     return "TRY AGAIN"                                   # several fingers off, or none far enough to name
 
 
+class FaultGuard:
+    """Catches an unplugged or shorted sensor during a lesson, and decides when scoring may resume.
+
+    A fault starts on the first bad reading. Scoring stays off until every
+    sensor has read in range for FAULT_RECOVERY_SECONDS in a row, so a wire
+    that is flickering in and out can't sneak a score through.
+    """
+
+    def __init__(self):
+        self.faulty = None                               # name of the faulty finger, or None
+        self.valid_since = None                          # when readings became valid again
+
+    def update(self, raw, now):
+        """Return the faulty finger's name while scoring must stay off, otherwise None."""
+        from startup_check import find_faulty_finger
+        bad = find_faulty_finger(raw)
+        if bad:
+            self.faulty, self.valid_since = bad, None
+            return bad
+        if self.faulty is None:
+            return None
+        if self.valid_since is None:
+            self.valid_since = now
+        if now - self.valid_since >= settings.FAULT_RECOVERY_SECONDS:
+            self.faulty = self.valid_since = None        # recovered: no recalibration needed
+            return None
+        return self.faulty
+
+
 class HoldTimer:
-    """Answers the flowchart question "Held for 1 second?"."""
+    """Answers the flowchart question "Held long enough?" (HOLD_SECONDS).
+
+    It reports success once per hold: to score again the user has to break
+    the pose first, so holding a sign for a long time counts only once.
+    """
 
     def __init__(self):
         self.started = None                              # when the current correct hold began
+        self.fired = False                               # success already reported for this hold
 
     def update(self, is_correct, now):
-        """Return True once the sign has been correct for HOLD_SECONDS in a row."""
+        """Return True once, when the sign has been correct for HOLD_SECONDS in a row."""
         if not is_correct:
-            self.started = None                          # the hold was broken: start over
+            self.reset()                                 # the hold was broken: start over
             return False
         if self.started is None:
             self.started = now
-        return now - self.started >= settings.HOLD_SECONDS
+        if self.fired or now - self.started < settings.HOLD_SECONDS:
+            return False
+        self.fired = True
+        return True
 
     def reset(self):
         self.started = None
+        self.fired = False
 
 
-def practice_step(raw, calibration, target, hold_timer, now):
+def practice_step(raw, calibration, target, hold_timer, now, fault_guard=None):
     """One pass of the practice loop: raw readings in, the wrist display's message out.
 
     Returns (title, detail, success). success is True when the target sign
     has been held correctly long enough to count.
     """
+    if fault_guard is not None:
+        faulty = fault_guard.update(raw, now)
+        if faulty:                                       # never score a disconnected sensor
+            hold_timer.reset()
+            return "SENSOR FAULT", f"Check {faulty}", False
+
     flat, fist = calibration
     bends = normalize(raw, flat, fist)
     recognized, confidence = recognize(bends)

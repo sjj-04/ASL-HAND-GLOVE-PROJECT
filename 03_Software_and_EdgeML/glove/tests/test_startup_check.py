@@ -58,7 +58,8 @@ class StartUpTests(unittest.TestCase):
     def test_nothing_saved_calibrates_first(self):
         result, shown = self.start(PretendHand())
         self.assertIsNotNone(result)
-        self.assertEqual(shown[0], ("CALIBRATING", "Hold hand FLAT"))
+        self.assertEqual(shown[0], ("CALIBRATION", "REQUIRED"))
+        self.assertEqual(shown[1], ("CALIBRATING", "Hold hand FLAT"))
         self.assertEqual(shown[-1], ("READY", ""))
         self.assertTrue(self.cal_file.exists())
 

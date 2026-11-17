@@ -49,9 +49,11 @@ REFERENCES = {
     "B": [0.9, 0.0, 0.0, 0.0, 0.0],    # flat fingers with the thumb folded in
     "C": [0.4, 0.5, 0.5, 0.5, 0.5],    # every finger curved halfway
 }
-ACCEPT_CONFIDENCE = 0.85       # how sure recognize() must be to accept a sign
-ADJUST_TOLERANCE = 0.25        # a finger this far from the reference is "out of place"
-HOLD_SECONDS = 1.0             # a correct sign must be held this long to count
+ACCEPT_CONFIDENCE = 0.85       # free practice: how sure recognize() must be to name a sign
+ACCEPT_SCORE = 90              # lesson: match score (0-100) needed to accept the target (TC-DELIV-03 1.1)
+ADJUST_TOLERANCE = 0.20        # a finger more than this far from the reference is "out of place"
+HOLD_SECONDS = 0.5             # a correct sign must be held this long to count (TC-DELIV-03 1.1)
+FAULT_RECOVERY_SECONDS = 1.0   # after a sensor fault, readings must be valid this long before scoring resumes
 SUCCESS_SECONDS = 1.5          # how long CORRECT stays on screen
 
 # Lesson ---------------------------------------------------------------------

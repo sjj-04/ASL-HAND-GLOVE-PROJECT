@@ -22,7 +22,7 @@ import settings
 from calibration import load_calibration, run_calibration
 from hardware import PI_LIBRARIES_FOUND, Sampler, open_hardware
 from lesson import LessonManager
-from sign_feedback import HoldTimer, practice_step
+from sign_feedback import FaultGuard, HoldTimer, practice_step
 from startup_check import find_faulty_finger
 
 
@@ -63,7 +63,9 @@ def start_up(sampler, display, cal_file):
         return None
 
     calibration = load_calibration(cal_file)         # "Calibration saved on microSD?"
-    if calibration is None:
+    if calibration is None:                          # missing, damaged, or a finger with F = B
+        display.message("CALIBRATION", "REQUIRED")   # scoring stays off until a calibration passes
+        time.sleep(settings.MESSAGE_SECONDS)
         calibration = run_calibration(sampler, display, cal_file)
         if calibration is None:                      # three failed tries: FAULT is on screen
             return None
@@ -78,14 +80,14 @@ def practice_loop(sampler, display, calibration):
     lesson = LessonManager()
     lesson.select_next()          # no buttons: the lesson starts right after READY
     hold_timer = HoldTimer()
+    fault_guard = FaultGuard()    # SENSOR FAULT mid-lesson, scoring off until 1 s of valid readings
     while True:
         title, detail, success = practice_step(
-            sampler.newest(), calibration, lesson.target, hold_timer, time.monotonic())
+            sampler.newest(), calibration, lesson.target, hold_timer, time.monotonic(), fault_guard)
         display.message(title, detail)
 
         if success:               # held correctly long enough
-            lesson.report_success()   # moves to the next letter
-            hold_timer.reset()
+            lesson.report_success()   # moves to the next letter (the hold timer waits for a new hold)
             time.sleep(settings.SUCCESS_SECONDS)
 
         time.sleep(1 / settings.LOOP_HZ)

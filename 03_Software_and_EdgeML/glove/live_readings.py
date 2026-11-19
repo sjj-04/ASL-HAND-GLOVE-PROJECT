@@ -2,7 +2,7 @@
 """
 Live CH0-CH4 sensor readings on the Winstar wrist LCD.
 
-Shows each flex sensor's raw ADC reading (0-4095) on the WDG0151 about 10 times
+Shows each flex sensor's raw ADC reading (0-4095) on the Winstar about 10 times
 per second, and prints the measured sampling and refresh rates in the terminal,
 which are the numbers Test 2.6 asks for.
 
@@ -10,7 +10,6 @@ It uses the glove's own code exactly as it is. The MCP3208, the 200 Hz Sampler
 with its 5-reading median filter and the WristDisplay driver are all imported
 from the glove folder. Nothing in that folder is changed, and nothing is added
 to it (not even a __pycache__). Keep this script outside the glove folder;
-your home folder is fine.
 
 Stop main.py first, because only one program at a time can claim the LCD pins.
 

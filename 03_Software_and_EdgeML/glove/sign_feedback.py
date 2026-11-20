@@ -24,8 +24,8 @@ def normalize(raw, flat, fist):
 def recognize(bends):
     """Return the best-matching sign and a confidence score (0.0 to 1.0).
 
-    TEMPORARY: this stands in for the neural network. It picks the sign whose
-    reference is closest to the hand. The trained network will replace this
+    This picks the sign whose reference is closest to the hand. 
+    The trained network will replace this
     and return the same two values, so nothing else needs to change.
     """
     best_sign, best_distance = None, None

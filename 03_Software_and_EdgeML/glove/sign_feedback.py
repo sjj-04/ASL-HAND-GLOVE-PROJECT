@@ -37,6 +37,20 @@ def recognize(bends):
     return best_sign, 1.0 - best_distance               # closer match = higher confidence
 
 
+def recognize_with_margin(bends):
+    """Return the best sign, its confidence, and how far ahead of the second-best sign it is.
+
+    The margin rule: a hand that is nearly as close to two signs (for example a
+    tightly curled C, halfway to A) is too close to call, so free practice
+    shows nothing instead of guessing.
+    """
+    scores = sorted(((1.0 - float(np.mean(np.abs(bends - np.array(reference)))), sign)
+                     for sign, reference in settings.REFERENCES.items()), reverse=True)
+    best_confidence, best_sign = scores[0]
+    second_confidence = scores[1][0] if len(scores) > 1 else 0.0
+    return best_sign, best_confidence, best_confidence - second_confidence
+
+
 def match_score(bends, target):
     """Match score, 0 to 100: 100 x (1 - average finger error). 100 is a perfect copy of the target."""
     errors = np.abs(bends - np.array(settings.REFERENCES[target]))

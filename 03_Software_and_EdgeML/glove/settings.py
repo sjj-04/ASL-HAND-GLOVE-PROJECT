@@ -53,6 +53,7 @@ REFERENCES = {
     "V": [0.8, 0.0, 0.0, 1.0, 1.0],    # index and middle up, thumb holding ring and pinky down
 }
 ACCEPT_CONFIDENCE = 0.80       # free practice: how sure recognize() must be to name a sign
+MARGIN = 0.10                  # free practice: the best sign must beat the second-best by this much
 ACCEPT_SCORE = 90              # lesson: match score (0-100) needed to accept the target (TC-DELIV-03 1.1)
 ADJUST_TOLERANCE = 0.20        # a finger more than this far from the reference is "out of place"
 HOLD_SECONDS = 0.5             # a correct sign must be held this long to count (TC-DELIV-03 1.1)

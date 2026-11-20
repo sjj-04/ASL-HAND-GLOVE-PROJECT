@@ -23,7 +23,7 @@ import time
 import settings
 from calibration import run_calibration
 from hardware import PI_LIBRARIES_FOUND, Sampler, open_hardware
-from sign_feedback import FaultGuard, normalize, recognize
+from sign_feedback import FaultGuard, normalize, recognize_with_margin
 from startup_check import find_faulty_finger
 
 FREE_HOLD_SECONDS = 1.0        # hold a sign this long before its letter is shown
@@ -104,9 +104,9 @@ def free_practice(sampler, display, calibration):
             continue
 
         bends = normalize(raw, flat, fist)               # each finger as 0.0 (flat) to 1.0 (fist)
-        sign, confidence = recognize(bends)              # closest of A, B, C
-        if confidence < settings.ACCEPT_CONFIDENCE:
-            sign = None                                  # not close enough to any letter
+        sign, confidence, margin = recognize_with_margin(bends)   # closest letter, and its lead
+        if confidence < settings.ACCEPT_CONFIDENCE or margin < settings.MARGIN:
+            sign = None                                  # not close enough, or too close to call
 
         if sign != holding:                              # the hand changed: start timing again
             holding = sign

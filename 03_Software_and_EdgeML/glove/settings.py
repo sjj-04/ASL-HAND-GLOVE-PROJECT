@@ -48,6 +48,9 @@ REFERENCES = {
     "A": [0.1, 1.0, 1.0, 1.0, 1.0],    # fist with the thumb alongside
     "B": [0.9, 0.0, 0.0, 0.0, 0.0],    # flat fingers with the thumb folded in
     "C": [0.4, 0.5, 0.5, 0.5, 0.5],    # every finger curved halfway
+    "D": [0.6, 0.0, 0.9, 0.9, 0.9],    # index up, the other fingers curled to touch the thumb
+    "I": [0.8, 1.0, 1.0, 1.0, 0.0],    # pinky up, thumb folded across the curled fingers
+    "V": [0.8, 0.0, 0.0, 1.0, 1.0],    # index and middle up, thumb holding ring and pinky down
 }
 ACCEPT_CONFIDENCE = 0.80       # free practice: how sure recognize() must be to name a sign
 ACCEPT_SCORE = 90              # lesson: match score (0-100) needed to accept the target (TC-DELIV-03 1.1)

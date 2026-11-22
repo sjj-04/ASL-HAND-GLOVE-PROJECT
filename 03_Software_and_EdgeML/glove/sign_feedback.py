@@ -7,9 +7,15 @@ Sign feedback: flowchart sheets 2 and 3 in Section 6 of the Design Specification
   practice_step()  put them together into the wrist display's message
 """
 
+from pathlib import Path
+
 import numpy as np
 
 import settings
+
+_model_cache = None              # (path, GloveModel or None), so the model file is read only once
+_smoother = None                 # averages the network's last few readings (asl_model.Smoother)
+_warned_inputs = False           # said once that the gyroscope is missing for the model
 
 
 def normalize(raw, flat, fist):
@@ -24,12 +30,19 @@ def normalize(raw, flat, fist):
 def recognize(bends):
     """Return the best-matching sign and a confidence score (0.0 to 1.0).
 
-    This picks the sign whose reference is closest to the hand. 
-    The trained network will replace this
-    and return the same two values, so nothing else needs to change.
+    This picks the sign whose reference is closest to the hand. With USE_MODEL on,
+    the trained network answers instead and returns the same two values
+    (the sign is None when it isn't sure, with confidence 0.0).
+    Only the 5 bends are given here, so J and Z (traced, see MOTION_LETTERS) are never picked.
     """
+    model = model_for(bends)
+    if model is not None:
+        sign, confidence, _ = model.recognize_with_margin(model_input(model, bends), settings.ACTIVE_LETTERS,
+                                                          settings.MODEL_MAX_DISTANCE, _smoother,
+                                                          use_groups=settings.SHOW_LOOK_ALIKE_GROUPS)
+        return sign, (confidence if sign is not None else 0.0)
     best_sign, best_distance = None, None
-    for sign, reference in settings.REFERENCES.items():
+    for sign, reference in reference_candidates(None).items():
         # Distance = average difference between the hand and this sign, across all fingers.
         distance = float(np.mean(np.abs(bends - np.array(reference))))
         if best_distance is None or distance < best_distance:
@@ -37,23 +50,119 @@ def recognize(bends):
     return best_sign, 1.0 - best_distance               # closer match = higher confidence
 
 
-def recognize_with_margin(bends):
+def reference_candidates(motion):
+    """The REFERENCES the hand could be making, given the gyroscope's motion reading.
+
+    Moving (tracing): only J and Z. Still: only the still letters. No gyroscope
+    (motion None): only the still letters, since J and Z can't be seen without it.
+    """
+    from alphabet import MOTION_LETTERS
+    from imu import is_moving
+    moving = is_moving(motion)
+    return {sign: ref for sign, ref in settings.REFERENCES.items() if (sign in MOTION_LETTERS) == moving}
+
+
+def recognize_with_margin(features):
     """Return the best sign, its confidence, and how far ahead of the second-best sign it is.
+
+    features: the 5 finger bends, or imu.hand_features() (bends + gyroscope tilt and motion).
 
     The margin rule: a hand that is nearly as close to two signs (for example a
     tightly curled C, halfway to A) is too close to call, so free practice
     shows nothing instead of guessing.
+
+    With USE_MODEL on, the trained network answers instead: confidence is its
+    probability for the sign, and the margin is its lead over the second-best.
+    It always names one letter (unless SHOW_LOOK_ALIKE_GROUPS is on).
+    Either way, a sign outside ACTIVE_LETTERS comes back as None.
     """
+    from imu import split_features
+    bends, _, motion = split_features(features)
+    model = model_for(features)
+    if model is not None:
+        return model.recognize_with_margin(model_input(model, features), settings.ACTIVE_LETTERS,
+                                           settings.MODEL_MAX_DISTANCE, _smoother,
+                                           use_groups=settings.SHOW_LOOK_ALIKE_GROUPS)
+
+    candidates = reference_candidates(motion)
+    if not candidates:
+        return None, 0.0, 0.0
     scores = sorted(((1.0 - float(np.mean(np.abs(bends - np.array(reference)))), sign)
-                     for sign, reference in settings.REFERENCES.items()), reverse=True)
+                     for sign, reference in candidates.items()), reverse=True)
     best_confidence, best_sign = scores[0]
     second_confidence = scores[1][0] if len(scores) > 1 else 0.0
+    if settings.ACTIVE_LETTERS and best_sign not in settings.ACTIVE_LETTERS:
+        best_sign = None                                 # closest to a letter we aren't showing today
     return best_sign, best_confidence, best_confidence - second_confidence
+
+
+def model_input(model, features):
+    """The first n of the hand's numbers, n being what the network was trained on (5, or 11 with the IMU)."""
+    return np.asarray(features, dtype=float)[:model.n_inputs]
+
+
+def model_for(features):
+    """The trained network if it can read these features, else None (use REFERENCES).
+
+    A network trained with the gyroscope needs its 11 inputs; if the gyroscope isn't
+    working, the glove falls back to REFERENCES rather than guess the missing numbers.
+    """
+    model = load_model()
+    if model is None:
+        return None
+    if len(features) < model.n_inputs:
+        global _warned_inputs
+        if not _warned_inputs:
+            print(f"[MODEL] The model needs {model.n_inputs} inputs (bends + gyroscope) but only "
+                  f"{len(features)} are available. Using REFERENCES until the gyroscope works.")
+            _warned_inputs = True
+        return None
+    return model
+
+
+def load_model():
+    """The trained network, or None to use REFERENCES (USE_MODEL off, or no model file yet)."""
+    global _model_cache, _smoother
+    if not getattr(settings, "USE_MODEL", False):
+        return None
+    path = Path(settings.MODEL_FILE)
+    if _model_cache is None or _model_cache[0] != path:
+        model = None
+        if path.exists():
+            from asl_model import GloveModel
+            model = GloveModel.load(path)
+            print(f"[MODEL] Using {path.name}: letters {', '.join(model.letters())}")
+            if model.groups and settings.SHOW_LOOK_ALIKE_GROUPS:
+                print(f"[MODEL] Shown together: {', '.join('/'.join(g) for g in model.groups)}")
+            elif model.groups:
+                print(f"[MODEL] Often confused (the more likely one is shown): "
+                      f"{', '.join('/'.join(g) for g in model.groups)}")
+            from asl_model import Smoother
+            _smoother = Smoother(getattr(settings, "MODEL_SMOOTHING_FRAMES", 5))
+        else:
+            print(f"[MODEL] {path} not found, using REFERENCES. Run train_model.py first.")
+        _model_cache = (path, model)
+    return _model_cache[1]
+
+
+def reference_for(target):
+    """How bent each finger should be for this sign.
+
+    With the trained model on, its measured pose (the median of everyone's
+    recordings) is used, so a lesson can teach any trained letter. Otherwise,
+    or for a sign the model has no recordings of, settings.REFERENCES.
+    """
+    model = load_model()
+    if model is not None and target in model.references:
+        return np.array(model.references[target])
+    if target not in settings.REFERENCES:
+        raise KeyError(f"No reference pose for {target}: add it to settings.REFERENCES or train the model")
+    return np.array(settings.REFERENCES[target])
 
 
 def match_score(bends, target):
     """Match score, 0 to 100: 100 x (1 - average finger error). 100 is a perfect copy of the target."""
-    errors = np.abs(bends - np.array(settings.REFERENCES[target]))
+    errors = np.abs(bends - reference_for(target))
     return 100.0 * (1.0 - float(np.mean(errors)))
 
 
@@ -64,7 +173,7 @@ def evaluate(bends, target, recognized=None, confidence=None):
     ADJUST_TOLERANCE of the target (the TC-DELIV-03 acceptance rule).
     recognized and confidence are kept for the free-practice display only.
     """
-    errors = np.abs(bends - np.array(settings.REFERENCES[target]))
+    errors = np.abs(bends - reference_for(target))
     tiny = 1e-9                                          # ignore floating-point rounding at the limits
     out_of_place = [finger for finger, error in zip(settings.FINGERS, errors)
                     if error > settings.ADJUST_TOLERANCE + tiny]

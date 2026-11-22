@@ -33,7 +33,6 @@ Run from this folder (on the Pi, with the glove on), once for each of the team
   python3 collect_data.py --person milly
   python3 collect_data.py --person sleytters
   python3 collect_data.py --person chris
-  python3 collect_data.py --person milly --letters J,Z --reps 8      only some letters (adds to Milly's data)
   python3 collect_data.py --person test --mock          a pretend glove (any computer), saved in data/mock/
 """
 

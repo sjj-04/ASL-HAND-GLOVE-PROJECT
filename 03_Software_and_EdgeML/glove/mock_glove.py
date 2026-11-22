@@ -69,6 +69,21 @@ class PretendHand:
         elapsed = time.monotonic() - self.script_start
         return [pose for start, pose in PRACTICE_SCRIPT if elapsed >= start][-1]   # the latest pose that has begun
 
+    # The gyroscope's view of the hand. Subclasses (collect_data.py, the touchscreen simulator)
+    # change these to tilt the hand or trace J and Z.
+    up = (1.0, 0.0, 0.0)                         # which way is up for the glove: fingers pointing up
+    motion = (0.0, 0.0, 0.0)                     # how hard it turns per axis, 0-1 of MOTION_FULL_SCALE_DPS
+
+    def imu_reading(self, now):
+        """(accel in g, gyro in deg/s), glove axes, as the IMU would read them right now."""
+        import settings
+        up = np.array(self.up, dtype=float)
+        accel = up / max(np.linalg.norm(up), 1e-9) + np.random.normal(0.0, 0.01, 3)
+        # Tracing swings back and forth, so the turning speed is a wave whose average size is `motion`.
+        wave = np.sin(2 * np.pi * 2.0 * now + np.array([0.0, 1.3, 2.6]))
+        gyro = np.array(self.motion) * settings.MOTION_FULL_SCALE_DPS * (np.pi / 2) * wave
+        return accel, gyro + np.random.normal(0.0, 1.0, 3)
+
     def reading(self, channel):
         """The raw value (0-4095) this hand produces on one ADC channel right now."""
         if channel == self.unplugged:
@@ -89,6 +104,30 @@ class MockMCP3208:
 
     def close(self):
         pass
+
+
+class MockIMU:
+    """Stands in for the MPU-6050: returns the pretend hand's tilt and turning."""
+
+    name = "pretend IMU"
+    address = 0x68
+
+    def __init__(self, hand):
+        self.hand = hand
+
+    def read(self):
+        return self.hand.imu_reading(time.monotonic())
+
+    def close(self):
+        pass
+
+
+def open_mock_imu(hand):
+    """A started ImuSampler reading the pretend hand, like imu.open_imu() on the Pi."""
+    import imu
+    sampler = imu.ImuSampler(MockIMU(hand))
+    sampler.start()
+    return sampler
 
 
 class MockOLED:

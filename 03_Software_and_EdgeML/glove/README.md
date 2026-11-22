@@ -6,7 +6,9 @@ Runs on the Raspberry Pi Zero in the wrist enclosure and follows the main progra
 
 | File | What it does |
 |---|---|
-| `main.py` | **The only file you run.** Start-up (flowchart sheet 1) and the practice loop (sheets 2 and 3) |
+| `main.py` | **The only file you run.** Start-up (flowchart sheet 1), the touchscreen's home screen, and free practice (sheets 2 and 3) |
+| `touchscreen/` | The Winstar touchscreen: home screen (Free / Lesson / Recalibrate), free mode, touch panel, and the laptop simulator |
+| `imu.py` | The gyroscope (MPU-6050 on I2C): which way the hand points (tilt) and how it moves (motion) |
 | `settings.py` | Every number you might tune. The ones calibration uses are set in `glove_calibration.py` and copied here |
 | `hardware.py` | Calibration_Routine's ADC, OLED and `Sampler`, plus the Selection button, a spike filter and repeat-skipping |
 | `mock_glove.py` | A pretend glove, so everything runs without a Pi |
@@ -15,6 +17,11 @@ Runs on the Raspberry Pi Zero in the wrist enclosure and follows the main progra
 | `sign_feedback.py` | `normalize()`, `recognize()`, `evaluate()`, `HoldTimer` and `practice_step()` |
 | `lesson.py` | `LessonManager`: the target sign and what the Selection button does |
 | `tests/` | Automated checks for each file |
+| `alphabet.py` | All 26 ASL letters (J and Z are traced): how to form each one, and which ones look alike to the sensors |
+| `collect_data.py` | Records each person's letters for training (see `TRAINING.md`) |
+| `train_model.py` | Trains and tests the letter network, saves `models/asl_model.npz` |
+| `asl_model.py` | The letter network the Pi runs (numpy only): finger bends + gyroscope in, one letter out. Off until `USE_MODEL = True` |
+| `TRAINING.md` | **Step-by-step guide to recording, training and turning on the letter model** |
 
 ## Try it on any computer
 
@@ -23,12 +30,15 @@ You only need Python 3 and NumPy. Run these from this folder (on Windows, type `
 ```bash
 pip install numpy
 python3 -m unittest                                # runs every test in tests/
-python3 main.py --mock                             # pretend glove: calibrates, then plays out a lesson
-python3 main.py --mock --stuck-finger Ring         # loose sensor: type c + Enter to watch calibration fail
+python3 main.py --mock                             # pretend glove: the touchscreen in a window
+python3 main.py --mock --text                      # the same, drawn in the terminal (type help)
+python3 main.py --mock --no-touchscreen            # no home screen: straight into free practice
+python3 main.py --mock --stuck-finger Ring         # loose sensor: calibration fails
 python3 main.py --mock --unplugged-finger Ring     # unplugged sensor: SENSOR FAULT at start-up
 ```
 
-- **In mock mode, type `c` + Enter to press the Calibration button and `s` + Enter to press Selection.** Ctrl+C quits.
+- **In the window, click the screen to touch it.** The buttons under it (or the letter keys) pick what the pretend hand signs: hold a letter 1 second and free mode shows it. J and Z are traced, so the pretend gyroscope moves. The window needs Pillow (`pip install pillow`).
+- **The pretend hand calibrates by itself** at start-up and when you tap Recalibrate.
 - **Mock mode saves its calibration to `Calibration_Routine/calibration_mock.json`,** so it never overwrites a real one. Delete that file to watch the start-up calibration again.
 - **VS Code underlines the Pi-only imports on a laptop.** `pip install gpiozero luma.oled pillow` clears them (except `spidev`, which only installs on Linux).
 
@@ -39,10 +49,15 @@ The Calibration button pin is set in `Calibration_Routine/glove_calibration.py`,
 | Part | Raspberry Pi Zero |
 |---|---|
 | MCP3208 (through the TXU0304): SCLK, MOSI, MISO, CS | GPIO11 (pin 23), GPIO10 (pin 19), GPIO9 (pin 21), GPIO8 / CE0 (pin 24) |
-| Wrist OLED: SDA, SCL | GPIO2 (pin 3), GPIO3 (pin 5) |
 | Calibration button | GPIO17 (pin 11) to GND (pin 9) |
 | Selection button | GPIO27 (pin 13) to GND (pin 14) |
 | Flex sensors | MCP3208 CH0 Thumb, CH1 Index, CH2 Middle, CH3 Ring, CH4 Pinky |
+| Gyroscope (MPU-6050): SDA, SCL, VCC, GND | GPIO2 (pin 3), GPIO3 (pin 5), 3.3 V (pin 1), GND (pin 6) |
+| Touch panel X+, X-, Y+, Y- | GPIO4 (pin 7) + MCP3208 CH5, GPIO14 (pin 8), GPIO15 (pin 10) + MCP3208 CH6, GPIO18 (pin 12) |
+
+**The gyroscope** is optional: with `USE_IMU = True` the glove looks for it at start-up, and if it isn't there it says so and carries on with the flex sensors (J and Z can't be read without it). Mount it flat on the back of the hand or wrist, then run `python3 imu.py`: with your fingers pointing up, tilt should read about (1, 0, 0), and with the thumb up (0, 1, 0). If not, change `IMU_AXES` in `settings.py`.
+
+**The touch panel** needs the serial port off, because GPIO14/15 are its pins: `sudo raspi-config` → Interface Options → Serial Port → login shell **No**, serial hardware **No**. Check the panel with a multimeter first: X+ to X- and Y+ to Y- should each read a few hundred ohms. Then run `python3 main.py --touch-test`, touch all four corners, Ctrl+C, and copy the numbers it prints into `settings.py`. If the touch panel can't be opened, main.py skips the home screen and goes straight to free practice.
 
 The buttons use the Pi's internal pull-up, so they don't need resistors. If they end up wired to 3.3 V instead of GND, set `BUTTON_PULL_UP = False` in `glove_calibration.py`.
 
@@ -55,7 +70,7 @@ sudo raspi-config nonint do_spi 0      # turn on SPI
 sudo raspi-config nonint do_i2c 0      # turn on I2C
 sudo apt update
 sudo apt install -y python3-numpy python3-spidev python3-gpiozero python3-lgpio \
-                    python3-pil i2c-tools fonts-dejavu-core
+                    python3-pil python3-smbus i2c-tools fonts-dejavu-core
 python3 -m venv --system-site-packages ~/glove-env
 ~/glove-env/bin/pip install luma.oled
 sudo reboot
@@ -63,11 +78,11 @@ sudo reboot
 
 Then, from this folder: `~/glove-env/bin/python main.py`
 
-The glove shows READY, then free practice. Press Selection to start the lesson.
+The glove checks the sensors, loads the saved calibration, shows READY, then the home screen. It never forces a calibration at start-up: the latest one (`calibration.json`) is used until someone taps **Recalibrate**, so the same person can switch it off and on and carry on. The very first time (nothing saved yet), tapping **Free** asks for a flat hand and a fist first. On the home screen: tap **Free** for free practice (one letter at a time, **Menu** to go back), **Recalibrate** to calibrate again. **Lesson** says "Coming soon" for now. With `USE_TOUCHSCREEN = False` it goes straight into free practice.
 
 ## Bring-up checklist
 
-1. **Find the OLED.** `i2cdetect -y 1` should show `3c`. If it shows `3d`, change `OLED_I2C_ADDRESS` in `glove_calibration.py`. The program still runs without the OLED and prints every screen message in the terminal.
+1. **Find the gyroscope.** `i2cdetect -y 1` should show `68` (or `69` if its AD0 pin is tied to 3.3 V: set `IMU_ADDRESS = 0x69`). The program still runs without it.
 2. **Check the finger order.** Each calibration prints a table of flat, fist and change values. Bend one finger at a time; if a different column moves, reorder `FINGERS` in `glove_calibration.py`.
 3. **Tune `MIN_RANGE` in `glove_calibration.py`.** Calibrate a few people and look at the smallest change, usually the thumb. About half of that is a good setting.
 4. **Record real reference signs.** The `REFERENCES` in `settings.py` are placeholders. Have someone who signs correctly hold each sign, and copy the bend values.
@@ -83,6 +98,7 @@ The glove shows READY, then free practice. Press Selection to start the lesson.
 
 ## Not built yet
 
-- **The neural network.** `recognize()` is a stand-in. The network should take the same five bend values and return the same `(sign, confidence)` pair.
+- **Real training data.** The letter network is built (`asl_model.py`, see `TRAINING.md`) and reads the gyroscope too, but it needs each teammate's recordings (all 26 letters, with the gyroscope working) before it can be turned on.
+- **Lessons on the touchscreen.** The Lesson button shows "Coming soon".
 - **The teaching-screen app.** `lesson.py` prints what the HDMI monitor would show.
 - **The RGB status LED.**

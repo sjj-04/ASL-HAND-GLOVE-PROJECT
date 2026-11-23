@@ -38,7 +38,7 @@ python3 main.py --mock --unplugged-finger Ring     # unplugged sensor: SENSOR FA
 ```
 
 - **In the window, click the screen to touch it.** The buttons under it (or the letter keys) pick what the pretend hand signs: hold a letter 1 second and free mode shows it. J and Z are traced, so the pretend gyroscope moves. The window needs Pillow (`pip install pillow`).
-- **The pretend hand calibrates by itself** at start-up and when you tap Recalibrate.
+- **The pretend hand calibrates by itself** (all 4 steps) when you tap Recalibrate, or tap Free with nothing saved.
 - **Mock mode saves its calibration to `Calibration_Routine/calibration_mock.json`,** so it never overwrites a real one. Delete that file to watch the start-up calibration again.
 - **VS Code underlines the Pi-only imports on a laptop.** `pip install gpiozero luma.oled pillow` clears them (except `spidev`, which only installs on Linux).
 
@@ -55,7 +55,18 @@ The Calibration button pin is set in `Calibration_Routine/glove_calibration.py`,
 | Gyroscope (MPU-6050): SDA, SCL, VCC, GND | GPIO2 (pin 3), GPIO3 (pin 5), 3.3 V (pin 1), GND (pin 6) |
 | Touch panel X+, X-, Y+, Y- | GPIO4 (pin 7) + MCP3208 CH5, GPIO14 (pin 8), GPIO15 (pin 10) + MCP3208 CH6, GPIO18 (pin 12) |
 
-**The gyroscope** is optional: with `USE_IMU = True` the glove looks for it at start-up, and if it isn't there it says so and carries on with the flex sensors (J and Z can't be read without it). Mount it flat on the back of the hand or wrist, then run `python3 imu.py`: with your fingers pointing up, tilt should read about (1, 0, 0), and with the thumb up (0, 1, 0). If not, change `IMU_AXES` in `settings.py`.
+**The gyroscope** is optional: with `USE_IMU = True` the glove looks for it at start-up, and if it isn't there it says so and carries on with the flex sensors (J and Z can't be read without it). Mount it flat on the back of the hand or wrist. **Calibration learns how it sits on each person** (steps 3 and 4 below), so the mounting doesn't have to be exact. Check it with `python3 imu.py`: after a calibration, fingers pointing up reads about (1, 0, 0) and thumb up (0, 1, 0).
+
+**Calibration has 4 steps with the gyroscope** (2 without), all in `calibration.py`. **Each step waits for the person:** nothing is recorded until they've reached the pose and held it still for 1 second, while the progress bar fills. Moving starts the hold again, so there's no rushing to read the prompt:
+
+| Step | Prompt | What it measures |
+|---|---|---|
+| 1 | Hold hand FLAT | each finger's 0%. Records once the hand is still (it's often already flat) |
+| 2 | Make a FIST | each finger's 100%. Waits for the fingers to bend, then still. Each finger keeps its own range, so the glove fits the person |
+| 3 | Point fingers UP | the gyroscope's "along the fingers" direction and its still reading. Waits for the fingers to straighten (or the hand to turn), then still |
+| 4 | Thumb UP | the gyroscope's "toward the thumb" direction. Waits for the hand to turn at least 60° from step 3, then still |
+
+A step that doesn't happen within 20 seconds says "Too slow" (or "Hold still" / "Turn hand more" for the gyroscope steps) and tries again: 3 tries, then FAULT, keeping the previous gyroscope calibration. `HOLD_STILL_SECONDS` and `STEP_TIMEOUT_SECONDS` at the top of `calibration.py` set the timings. (`Calibration_Routine/glove_calibration.py` keeps the original 2-second timed routine for its own program and the Deliverable 3.1/3.2 tests.) Everything is saved in `calibration.json`. Until the first calibration with the gyroscope, `IMU_AXES` in `settings.py` is used as a rough guess.
 
 **The touch panel** needs the serial port off, because GPIO14/15 are its pins: `sudo raspi-config` → Interface Options → Serial Port → login shell **No**, serial hardware **No**. Check the panel with a multimeter first: X+ to X- and Y+ to Y- should each read a few hundred ohms. Then run `python3 main.py --touch-test`, touch all four corners, Ctrl+C, and copy the numbers it prints into `settings.py`. If the touch panel can't be opened, main.py skips the home screen and goes straight to free practice.
 
@@ -78,7 +89,7 @@ sudo reboot
 
 Then, from this folder: `~/glove-env/bin/python main.py`
 
-The glove checks the sensors, loads the saved calibration, shows READY, then the home screen. It never forces a calibration at start-up: the latest one (`calibration.json`) is used until someone taps **Recalibrate**, so the same person can switch it off and on and carry on. The very first time (nothing saved yet), tapping **Free** asks for a flat hand and a fist first. On the home screen: tap **Free** for free practice (one letter at a time, **Menu** to go back), **Recalibrate** to calibrate again. **Lesson** says "Coming soon" for now. With `USE_TOUCHSCREEN = False` it goes straight into free practice.
+The glove checks the sensors, loads the saved calibration (fingers and gyroscope), shows READY, then the home screen. It never forces a calibration at start-up: the latest one (`calibration.json`) is used until someone taps **Recalibrate**, so the same person can switch it off and on and carry on. The very first time (nothing saved yet), tapping **Free** asks for a flat hand and a fist first. On the home screen: tap **Free** for free practice (one letter at a time, **Menu** to go back), **Recalibrate** to calibrate again. **Lesson** says "Coming soon" for now. With `USE_TOUCHSCREEN = False` it goes straight into free practice.
 
 ## Bring-up checklist
 

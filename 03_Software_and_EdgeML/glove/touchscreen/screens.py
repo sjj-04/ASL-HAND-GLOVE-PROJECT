@@ -127,8 +127,9 @@ def coming_soon():
     return Screen(image, buttons, "Lessons: coming soon  [Back]")
 
 
-def calibrating(prompt, step, progress):
-    """step is 1 (flat) or 2 (fist); progress runs from 0.0 to 1.0 while the pose is held."""
+def calibrating(prompt, step, progress, total=2):
+    """step: 1 flat, 2 fist, 3 fingers up, 4 thumb up (total is 4 with the gyroscope, else 2).
+    progress runs from 0.0 to 1.0 while the pose is held."""
     image, draw = new_screen()
     title_bar(draw, "CALIBRATING")
     text_in(draw, prompt, (0, 14, WIDTH - 1, 28), 12)
@@ -136,8 +137,8 @@ def calibrating(prompt, step, progress):
     filled = round(100 * max(0.0, min(1.0, progress)))
     if filled:
         draw.rectangle((14, 34, 13 + filled, 40), fill=ON)
-    text_in(draw, f"Step {step} of 2", (0, 48, WIDTH - 1, 61), 10)
-    return Screen(image, {}, f"CALIBRATING  {prompt}  (step {step} of 2)")
+    text_in(draw, f"Step {step} of {total}", (0, 48, WIDTH - 1, 61), 10)
+    return Screen(image, {}, f"CALIBRATING  {prompt}  (step {step} of {total})")
 
 
 @lru_cache(maxsize=64)

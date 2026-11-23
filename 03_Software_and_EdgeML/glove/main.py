@@ -5,7 +5,8 @@ What it does:
   1. Start-up: check the sensors, then use the saved calibration (calibration.json), so
      the same person doesn't have to calibrate every time. It is kept until someone taps
      Recalibrate. With no saved calibration yet, the touchscreen still opens on the home
-     screen and asks for one ("Hold hand FLAT", then "Make a FIST") when Free is tapped.
+     screen and asks for one when Free is tapped: "Hold hand FLAT", "Make a FIST", and with
+     the gyroscope "Point fingers UP" and "Thumb UP" (see calibration.py).
   2. READY, then the touchscreen's home screen: [Free] [Lesson] [Recalibrate]
      (or straight into free practice if USE_TOUCHSCREEN is False).
   3. Free practice, 20 times per second: work out which letter the hand is making,
@@ -31,7 +32,7 @@ import time
 
 import settings
 from alphabet import MOTION_LETTERS
-from calibration import load_calibration, run_calibration
+from calibration import apply_saved_imu_calibration, load_calibration, run_full_calibration
 from hardware import PI_LIBRARIES_FOUND, Sampler, open_hardware
 from imu import hand_features
 from sign_feedback import FaultGuard, normalize, recognize_with_margin
@@ -86,9 +87,11 @@ def main():
         adc.close()
 
 
-def start_up(sampler, display, cal_file, imu=None):
+def start_up(sampler, display, cal_file, imu=None, recalibrate=False):
     """Check the sensors, then use the saved calibration, or record one if there is none yet.
 
+    recalibrate: True always records a new one (collect_data.py: every person calibrates
+    their own hand before recording).
     Returns (flat, fist), or None if the glove has to stop.
     """
     faulty = find_faulty_finger(sampler.newest())    # "All five sensors in range?"
@@ -97,14 +100,19 @@ def start_up(sampler, display, cal_file, imu=None):
         return None
 
     # "Calibration saved on microSD?" The latest one is used until someone recalibrates.
-    calibration = load_calibration(cal_file)
+    calibration = None if recalibrate else load_calibration(cal_file)
     if calibration is None:
-        display.message("CALIBRATION", "REQUIRED")
-        time.sleep(settings.MESSAGE_SECONDS)
-        # run_calibration() shows "Hold hand FLAT", then "Make a FIST", and saves both.
-        calibration = run_calibration(sampler, display, cal_file)
+        if not recalibrate:
+            display.message("CALIBRATION", "REQUIRED")
+            time.sleep(settings.MESSAGE_SECONDS)
+        # Flat hand, fist, and with the gyroscope fingers up and thumb up. Saved in calibration.json.
+        if hasattr(display, "calibration_steps"):
+            display.calibration_steps = 4 if imu is not None else 2       # the touchscreen's "Step 1 of 4"
+        calibration = run_full_calibration(sampler, display, cal_file, imu)
         if calibration is None:                      # three failed tries: FAULT is on screen
             return None
+    else:
+        apply_saved_imu_calibration(imu, cal_file)   # the gyroscope's saved directions and still reading
     if imu is not None:
         imu.zero_gyro()                              # zero the gyroscope if the hand is resting still
 

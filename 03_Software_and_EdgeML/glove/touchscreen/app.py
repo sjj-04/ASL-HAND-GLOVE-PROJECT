@@ -8,7 +8,8 @@ The touchscreen's home screen and what its three buttons do.
   Free          main.free_practice(), drawn as the free-mode screen: one big letter,
                 with [Menu] and [Recal] buttons
   Lesson        "Coming soon" and [Back], until lessons are built
-  Recalibrate   run_calibration() with a progress bar
+  Recalibrate   flat hand, fist, and with the gyroscope fingers up and thumb up
+                (calibration.run_full_calibration()), with a progress bar
 
 main.py's own functions do the work; this file draws them on the touchscreen
 and decides what each tap does.
@@ -19,7 +20,7 @@ import time
 import settings
 import sign_feedback
 from alphabet import MOTION_LETTERS
-from calibration import load_calibration, run_calibration
+from calibration import apply_saved_imu_calibration, load_calibration, run_full_calibration
 from startup_check import find_faulty_finger
 
 from . import screens
@@ -92,6 +93,8 @@ class HomeApp:
             self.lcd.message("SENSOR FAULT", f"Check {faulty}")
             return False
         self.calibration = load_calibration(self.cal_file)     # None until someone calibrates
+        if self.calibration is not None:
+            apply_saved_imu_calibration(self.imu, self.cal_file)
         print("[CAL] Using the saved calibration." if self.calibration is not None
               else "[CAL] No calibration saved yet: tapping Free will ask for one.")
         if self.imu is not None:
@@ -144,12 +147,12 @@ class HomeApp:
                 self.recalibrate()
 
     def recalibrate(self):
-        """The glove's run_calibration(). If it fails, the old calibration is kept."""
-        new = run_calibration(self.sampler, self.lcd, self.cal_file)
+        """All the calibration steps (calibration.py). If the fingers fail, the old calibration is kept."""
+        if hasattr(self.lcd, "calibration_steps"):
+            self.lcd.calibration_steps = 4 if self.imu is not None else 2   # "Step 1 of 4" with the gyroscope
+        new = run_full_calibration(self.sampler, self.lcd, self.cal_file, self.imu)
         if new is not None:
             self.calibration = new
-            if self.imu is not None:
-                self.imu.zero_gyro()
         else:
             self.sleep(settings.MESSAGE_SECONDS)                # leave FAULT up long enough to read
         self.touch.clear()

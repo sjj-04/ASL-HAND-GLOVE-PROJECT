@@ -21,6 +21,16 @@ from . import screens
 ANIMATION_SECONDS = 0.15       # how often the calibration progress bar moves
 
 
+def calibration_step(prompt):
+    """Which calibration step a prompt is: 1 FLAT, 2 FIST, 3 fingers UP, 4 thumb UP."""
+    prompt = prompt.upper()
+    if "THUMB" in prompt:
+        return 4
+    if "FINGERS UP" in prompt:
+        return 3
+    return 2 if "FIST" in prompt else 1
+
+
 def pack(image):
     """The picture as the LCD stores it: 8 pages x 128 columns, top pixel in bit 0 (as WristDisplay does)."""
     pixels = np.array(image, dtype=np.uint8).reshape(8, 8, 128)
@@ -40,10 +50,12 @@ class TouchLcd:
         self.current = None                 # the Screen shown now (its buttons are what a tap hits)
         self.last_summary = None
         self.generation = 0                 # bumped to stop the progress-bar thread
+        self.calibration_steps = 2          # 4 with the gyroscope (HomeApp sets it)
 
     # What the app uses ------------------------------------------------------------
 
     def show(self, screen):
+        self.calibrating_prompt = None
         self.stop_animation()
         self._tell_hand("screen", "")
         self._push(screen)
@@ -53,10 +65,22 @@ class TouchLcd:
     def message(self, title, detail=""):
         self._tell_hand(title, detail)
         if title == "CALIBRATING":
-            self._animate(detail, 2 if "FIST" in detail.upper() else 1)
+            self.calibrating_prompt = detail
+            self._animate(detail, calibration_step(detail))
         else:
+            self.calibrating_prompt = None
             self.stop_animation()
             self._push(screens.message(title, detail))
+
+    def progress(self, fraction):
+        """Calibration's progress bar: how long the pose has been held (calibration.py calls this
+        while it waits). It replaces the timed animation, so the bar shows the real hold."""
+        prompt = getattr(self, "calibrating_prompt", None)
+        if prompt is None:
+            return
+        with self.lock:
+            self.generation += 1                        # stop the timed animation
+            self._push(screens.calibrating(prompt, calibration_step(prompt), fraction, self.calibration_steps))
 
     def stop_animation(self):
         with self.lock:
@@ -73,7 +97,7 @@ class TouchLcd:
         with self.lock:
             self.generation += 1
             generation = self.generation
-            self._push(screens.calibrating(prompt, step, 0.0))
+            self._push(screens.calibrating(prompt, step, 0.0, self.calibration_steps))
         duration = self.routine.POSE_SETTLE_SECONDS + self.routine.AVERAGE_SECONDS
         start = time.monotonic()
 
@@ -84,7 +108,7 @@ class TouchLcd:
                 with self.lock:
                     if generation != self.generation:
                         return                          # a new screen replaced this one
-                    self._push(screens.calibrating(prompt, step, progress))
+                    self._push(screens.calibrating(prompt, step, progress, self.calibration_steps))
                 if progress >= 1.0:
                     return
 

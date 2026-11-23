@@ -55,6 +55,7 @@ class PretendHand:
     def follow(self, title, detail):
         """React to a new message on the wrist display."""
         self.calibrating = title == "CALIBRATING"
+        self.calibration_prompt = detail.upper() if self.calibrating else ""
         if self.calibrating:
             self.calibration_pose = FIST if "FIST" in detail else FLAT
         if title.startswith("Target") and self.script_start is None:
@@ -73,16 +74,28 @@ class PretendHand:
     # change these to tilt the hand or trace J and Z.
     up = (1.0, 0.0, 0.0)                         # which way is up for the glove: fingers pointing up
     motion = (0.0, 0.0, 0.0)                     # how hard it turns per axis, 0-1 of MOTION_FULL_SCALE_DPS
+    mount = None                                 # how the board sits on the wrist: a 3x3 rotation from glove
+                                                 # axes to the board's axes (None = lined up exactly)
+    gyro_bias = (0.0, 0.0, 0.0)                  # what the board's gyro reads when still, deg/s
+
+    # Calibration steps 3 and 4: where "up" is for the glove in each pose.
+    CALIBRATION_UP = {"FINGERS UP": (1.0, 0.0, 0.0), "THUMB UP": (0.0, 1.0, 0.0)}
 
     def imu_reading(self, now):
-        """(accel in g, gyro in deg/s), glove axes, as the IMU would read them right now."""
+        """(accel in g, gyro in deg/s) in the board's axes, as the IMU would read them right now."""
         import settings
-        up = np.array(self.up, dtype=float)
+        calibrating = getattr(self, "calibrating", False)
+        prompt = getattr(self, "calibration_prompt", "")
+        pose_up = next((up for name, up in self.CALIBRATION_UP.items() if name in prompt), None)
+        up = np.array(pose_up if calibrating and pose_up else (1.0, 0.0, 0.0) if calibrating else self.up,
+                      dtype=float)
         accel = up / max(np.linalg.norm(up), 1e-9) + np.random.normal(0.0, 0.01, 3)
         # Tracing swings back and forth, so the turning speed is a wave whose average size is `motion`.
         wave = np.sin(2 * np.pi * 2.0 * now + np.array([0.0, 1.3, 2.6]))
-        gyro = np.array(self.motion) * settings.MOTION_FULL_SCALE_DPS * (np.pi / 2) * wave
-        return accel, gyro + np.random.normal(0.0, 1.0, 3)
+        motion = np.zeros(3) if calibrating else np.array(self.motion)
+        gyro = motion * settings.MOTION_FULL_SCALE_DPS * (np.pi / 2) * wave + np.random.normal(0.0, 1.0, 3)
+        mount = np.eye(3) if self.mount is None else np.asarray(self.mount, dtype=float)
+        return mount @ accel, mount @ gyro + np.asarray(self.gyro_bias, dtype=float)
 
     def reading(self, channel):
         """The raw value (0-4095) this hand produces on one ADC channel right now."""

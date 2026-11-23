@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parents[1]))   # lets the tests import the
 import settings
 import hardware
 import main as glove_main
+import calibration as calibration_module
 import mock_glove
 from mock_glove import MockMCP3208
 from touchscreen import app as home
@@ -299,7 +300,7 @@ class HomeAppTest(unittest.TestCase):
         self.app.start()
         self.touch.at(0.1, "menu")
         self.tap("free")
-        self.assertIn("CALIBRATING  Hold hand FLAT  (step 1 of 2)", self.shown)
+        self.assertTrue(any(x.startswith("CALIBRATING  Hold hand FLAT") for x in self.shown))
         self.assertIsNotNone(self.app.calibration)
         self.make_app()                                         # the glove is switched off and on again
         self.app.start()
@@ -315,6 +316,7 @@ class HomeAppTest(unittest.TestCase):
 
     def test_free_mode_shows_held_letters_then_menu_goes_home(self):
         self.app.start()
+        self.tap("recal")                                   # calibrate first (calibration waits for the hand)
         self.touch.at(0.5, lambda: self.hand.choose("B"))
         self.touch.at(2.0, lambda: self.hand.choose("C"))
         self.touch.at(3.5, "menu")
@@ -326,12 +328,13 @@ class HomeAppTest(unittest.TestCase):
 
     def test_recal_from_free_mode_goes_back_to_free_mode(self):
         self.app.start()
+        self.tap("recal")
         old = self.app.calibration
         self.touch.at(0.3, "recal")
-        self.touch.at(0.6, lambda: self.hand.choose("A"))
-        self.touch.at(2.5, "menu")
+        self.touch.at(0.6, lambda: self.hand.choose("A"))      # runs once free mode is back
+        self.touch.at(20.0, "menu")                            # well after the recalibration
         self.tap("free")
-        recal_at = self.shown.index("CALIBRATING  Hold hand FLAT  (step 1 of 2)")
+        recal_at = next(i for i, x in enumerate(self.shown) if x.startswith("CALIBRATING  Hold hand FLAT"))
         self.assertIn("Free mode: A  [Menu] [Recal]", self.shown[recal_at:])
         self.assertIsNot(self.app.calibration, old)
 
@@ -375,6 +378,14 @@ class FakeImu:
     def state(self):
         return np.array(self.hand.up, dtype=float), np.array(self.hand.motion, dtype=float)
 
+    def recent(self, seconds):
+        """Calibration's raw readings: 20 still readings of the hand's current pose."""
+        accel, _ = self.hand.imu_reading(0.0)
+        return np.tile(accel, (20, 1)), np.zeros((20, 3))
+
+    def set_orientation(self, rotation, gyro_offset=None):
+        self.rotation = rotation
+
     def zero_gyro(self):
         pass
 
@@ -399,8 +410,16 @@ class HomeAppWithGyroscopeTest(HomeAppTest):
         self.app.step()
         self.assertEqual(self.screen(), "Home (5 letters): [Free] [Lesson] [Recalibrate]")   # A B C I J
 
+    def test_recalibrate_has_4_steps_with_the_gyroscope(self):
+        self.app.start()
+        self.tap("recal")
+        self.assertIn("CALIBRATING  Point fingers UP  (step 3 of 4)", self.shown)
+        self.assertIn("CALIBRATING  Thumb UP  (step 4 of 4)", self.shown)
+        self.assertIsNotNone(calibration_module.load_imu_calibration(self.app.cal_file))
+
     def test_traced_j_and_still_i(self):
         self.app.start()
+        self.tap("recal")
         self.touch.at(0.2, lambda: self.hand.choose("I"))
         self.touch.at(2.0, lambda: self.hand.choose("J"))         # SimHand traces J: the gyroscope moves
         self.touch.at(3.0, "menu")

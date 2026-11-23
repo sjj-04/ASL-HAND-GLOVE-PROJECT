@@ -86,7 +86,8 @@ USE_IMU = True                 # False: flex sensors only. If the IMU isn't foun
 IMU_I2C_BUS = 1                # /dev/i2c-1, the Pi's GPIO2/GPIO3 bus
 IMU_ADDRESS = 0x68             # 0x68 with AD0 to GND (most boards), 0x69 with AD0 to 3.3 V
 IMU_SAMPLE_HZ = 100            # readings per second, in their own background thread
-IMU_AXES = ("+x", "+y", "+z")  # which IMU axis points (1) along the fingers, (2) toward the thumb,
+IMU_AXES = ("+x", "+y", "+z")  # rough guess until calibration's steps 3-4 measure it: which IMU axis
+                               # points (1) along the fingers, (2) toward the thumb,
                                # (3) out of the back of the hand. Check with  python3 imu.py
 TILT_SECONDS = 0.1             # tilt = the average of this much accelerometer data
 MOTION_SECONDS = 0.5           # motion = the average turning speed over this long

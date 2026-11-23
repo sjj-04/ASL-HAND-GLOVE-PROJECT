@@ -22,10 +22,17 @@ From them the glove gets six numbers, added to the five finger bends:
 hand_features() puts the 11 numbers together. The trained network and the
 recordings use them; without an IMU they are just the 5 bends, like before.
 
+Calibration (calibration.py, steps 3 and 4: "Point fingers UP", "Thumb UP")
+measures how the board sits on this person's wrist and the gyro's still
+reading. orientation_from() turns those into a rotation, and the sampler uses
+it, so tilt and motion mean the same thing on everyone. Until a calibration
+has been done with the IMU, the rough guess in IMU_AXES is used.
+
 Check the IMU and its axes (on the Pi):
-    python3 imu.py            prints tilt and motion 5 times per second. Point your fingers up:
-                              tilt should read about (1, 0, 0). Thumb up: (0, 1, 0). If not,
-                              change IMU_AXES in settings.py.
+    python3 imu.py            prints tilt and motion 5 times per second, using the saved
+                              calibration if there is one. Point your fingers up: tilt should
+                              read about (1, 0, 0). Thumb up: (0, 1, 0). Before the first
+                              calibration with the gyroscope, IMU_AXES in settings.py is used.
 """
 
 import threading
@@ -65,6 +72,34 @@ def split_features(features):
 def is_moving(motion):
     """True if the hand is turning fast enough to be tracing J or Z."""
     return motion is not None and float(np.max(motion)) >= settings.MOTION_START
+
+
+def orientation_from(fingers_up, thumb_up):
+    """The rotation that turns IMU readings into glove axes, from two calibration poses.
+
+    fingers_up: the accelerometer's average while the fingers point up. Gravity runs
+                along the fingers, so this is the "along the fingers" direction.
+    thumb_up:   the average while the thumb points up: the "toward the thumb" direction.
+    The third, out of the back of the hand, is at right angles to both.
+    Returns a 3x3 matrix (rows: along, thumb, back), or None if the two poses
+    point too nearly the same way (less than MIN_POSE_ANGLE apart) to tell them apart.
+    """
+    along = np.asarray(fingers_up, dtype=float)
+    thumb = np.asarray(thumb_up, dtype=float)
+    if np.linalg.norm(along) < 0.5 or np.linalg.norm(thumb) < 0.5:
+        return None                                  # hardly any gravity reading: not a real pose
+    along = along / np.linalg.norm(along)
+    thumb = thumb / np.linalg.norm(thumb)
+    angle = np.degrees(np.arccos(np.clip(np.dot(along, thumb), -1.0, 1.0)))
+    if angle < MIN_POSE_ANGLE:
+        return None
+    thumb = thumb - np.dot(thumb, along) * along     # make it exactly at right angles to "along"
+    thumb = thumb / np.linalg.norm(thumb)
+    back = np.cross(along, thumb)                    # out of the back of the (right) hand
+    return np.vstack([along, thumb, back])
+
+
+MIN_POSE_ANGLE = 60.0          # "fingers up" and "thumb up" must point at least this far apart
 
 
 def axis_map(axes=None):
@@ -120,6 +155,7 @@ class ImuSampler:
         self.window = deque(maxlen=max(2, int(settings.IMU_SAMPLE_HZ * max(settings.MOTION_SECONDS, 1.0))))
         self.lock = threading.Lock()
         self.gyro_offset = np.zeros(3)              # the gyro reads a few deg/s even when still
+        self.rotation = np.eye(3)                   # IMU axes -> glove axes, from calibration
         self.running = False
         self.errors = 0
         self.thread = threading.Thread(target=self.run, daemon=True)
@@ -147,6 +183,22 @@ class ImuSampler:
             next_time += period
             time.sleep(max(0.0, next_time - time.monotonic()))
 
+    def set_orientation(self, rotation, gyro_offset=None):
+        """Use a calibration's hand directions (and gyro still reading) from now on."""
+        self.rotation = np.asarray(rotation, dtype=float)
+        if gyro_offset is not None:
+            self.gyro_offset = np.asarray(gyro_offset, dtype=float)
+
+    def recent(self, seconds):
+        """The raw readings from the last `seconds`: (accel array n x 3, gyro array n x 3), IMU axes,
+        before the calibration's rotation and gyro offset. Calibration measures with these."""
+        now = time.monotonic()
+        with self.lock:
+            part = [(a, g) for t, a, g in self.window if now - t <= seconds]
+        if not part:
+            return np.zeros((0, 3)), np.zeros((0, 3))
+        return np.array([a for a, _ in part]), np.array([g for _, g in part])
+
     def zero_gyro(self):
         """Make the gyro's still reading zero (it reads a few deg/s even when still).
 
@@ -162,12 +214,12 @@ class ImuSampler:
         return True
 
     def latest(self):
-        """The newest raw reading: (accel in g, gyro in deg/s, gyro offset removed), glove axes."""
+        """The newest reading: (accel in g, gyro in deg/s, gyro offset removed), glove axes."""
         with self.lock:
             if not self.window:
                 return np.array([1.0, 0.0, 0.0]), np.zeros(3)
             _, accel, gyro = self.window[-1]
-        return accel, gyro - self.gyro_offset
+        return self.rotation @ accel, self.rotation @ (gyro - self.gyro_offset)
 
     def state(self):
         """(tilt, motion): tilt is the unit 'up' direction, motion each axis's turning speed, 0 to 1."""
@@ -177,13 +229,14 @@ class ImuSampler:
         if not readings:
             return STILL_STATE
         tilt_part = [a for t, a, _ in readings if now - t <= settings.TILT_SECONDS] or [readings[-1][1]]
-        up = np.mean(tilt_part, axis=0)
+        up = self.rotation @ np.mean(tilt_part, axis=0)
         size = np.linalg.norm(up)
         tilt = up / size if size > 0.3 else STILL_STATE[0]        # in free fall or a bad read: assume up
         motion_part = [g for t, _, g in readings if now - t <= settings.MOTION_SECONDS]
         if not motion_part:
             return tilt, np.zeros(3)
-        speed = np.mean(np.abs(np.array(motion_part) - self.gyro_offset), axis=0)
+        turning = (np.array(motion_part) - self.gyro_offset) @ self.rotation.T     # into glove axes
+        speed = np.mean(np.abs(turning), axis=0)
         return tilt, np.clip(speed / settings.MOTION_FULL_SCALE_DPS, 0.0, 1.0)
 
 
@@ -209,6 +262,12 @@ def main():
     if sampler is None:
         raise SystemExit("No IMU. Is USE_IMU = True in settings.py, is I2C on (sudo raspi-config), "
                          "and does  i2cdetect -y 1  show 68?")
+    from calibration import apply_saved_imu_calibration
+    if apply_saved_imu_calibration(sampler, settings.CAL_FILE):
+        print("Using the saved calibration's gyroscope directions.")
+    time.sleep(0.6)
+    if sampler.zero_gyro():
+        print("Gyro still reading zeroed (keep the board still while this starts).")
     print("Point your fingers up: tilt about (1, 0, 0). Thumb up: (0, 1, 0). Back of hand up: (0, 0, 1).")
     print("Twist and wave your hand to see motion. Ctrl+C quits.")
     try:

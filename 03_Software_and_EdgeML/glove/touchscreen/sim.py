@@ -80,7 +80,7 @@ class SimHand(PretendHand):
 
     def _update_imu(self):
         letter = None if self.calibrating else self.chosen
-        self.up = EXPECTED_TILT.get(letter, (1.0, 0.0, 0.0))
+        self.up = EXPECTED_TILT.get(letter, (1.0, 0.0, 0.0))      # (calibration poses: PretendHand)
         self.motion = EXPECTED_MOTION.get(letter, (0.0, 0.0, 0.0))
 
     def pose(self):

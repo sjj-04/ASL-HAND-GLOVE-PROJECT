@@ -1,7 +1,8 @@
 """
 Collect training data for the ASL letter network.
 
-Each person who wears the glove runs this once. It calibrates their hand, then
+Each person who wears the glove runs this once. It calibrates their hand (flat,
+fist, and with the gyroscope fingers up and thumb up: see calibration.py), then
 asks for each letter several times, in a shuffled order. With the gyroscope
 that is all 26 letters; without it, the 24 still letters (J and Z are traced, so
 they need its motion reading). The terminal shows how to form each one:
@@ -114,7 +115,8 @@ def main():
     sampler.start()
     saved = 0
     try:
-        calibration = start_up(sampler, display, cal_file, imu)
+        # Always a fresh calibration: the data must fit THIS person's hand, not whoever calibrated last.
+        calibration = start_up(sampler, display, cal_file, imu, recalibrate=True)
         if calibration is None:
             raise SystemExit("Stopped at start-up. The wrist display shows why.")
         flat, fist = calibration

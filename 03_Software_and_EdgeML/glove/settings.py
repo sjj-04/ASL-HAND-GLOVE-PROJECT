@@ -117,6 +117,7 @@ TEAM = ["zion", "amad", "milly", "sleytters", "chris"]
 LESSONS = {
     "Hello": "HELLO",
     "Alphabet": "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+    "Zion": "ZION"
 }
 DEFAULT_LESSON = "Hello"       # the lesson that runs when none is picked
 LESSON = list(LESSONS[DEFAULT_LESSON])   # kept so lesson.py still works: LessonManager() uses it

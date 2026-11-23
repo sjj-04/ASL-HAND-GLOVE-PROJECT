@@ -67,7 +67,7 @@ SUCCESS_SECONDS = 1.5          # how long CORRECT stays on screen
 # Neural network (asl_model.py) ----------------------------------------------
 # Train it with collect_data.py then train_model.py (see TRAINING.md). With the gyroscope it can
 # learn all 26 letters, J and Z included. Without it, the 24 still letters (A to Y except J).
-USE_MODEL = False              # True: free practice reads letters with the trained network instead of REFERENCES.
+USE_MODEL = True              # True: free practice reads letters with the trained network instead of REFERENCES.
                                # Turn on only after train_model.py shows it beats REFERENCES. If the model file
                                # is missing, the glove falls back to REFERENCES and says so in the terminal.
 MODEL_FILE = Path(__file__).with_name("models") / "asl_model.npz"
@@ -112,4 +112,11 @@ TOUCH_SWAP_XY = False          # True if moving your finger sideways changes the
 TEAM = ["zion", "amad", "milly", "sleytters", "chris"]
 
 # Lesson ---------------------------------------------------------------------
-LESSON = ["A", "B", "C"]       # the order the lesson goes through the signs
+# Each lesson is a name and the letters to sign, in order. To add a word lesson, add one line.
+# A word is just its letters: "HELLO" is H, E, L, L, O. Name -> letters.
+LESSONS = {
+    "Hello": "HELLO",
+    "Alphabet": "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+}
+DEFAULT_LESSON = "Hello"       # the lesson that runs when none is picked
+LESSON = list(LESSONS[DEFAULT_LESSON])   # kept so lesson.py still works: LessonManager() uses it

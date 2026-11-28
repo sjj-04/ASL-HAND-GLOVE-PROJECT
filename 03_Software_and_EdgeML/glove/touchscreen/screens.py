@@ -1,6 +1,7 @@
 """
 The screens the Winstar shows, drawn as 128x64 black-and-white pictures:
-the home screen (Free / Lesson / Recalibrate), free mode, calibration and messages.
+the home screen (Free / Lesson / Recalibrate), free mode, the lesson list, lessons,
+calibration and messages.
 
 Each function returns a Screen: the picture, the touch buttons on it (name ->
 box), and a one-line summary that gets printed in the terminal. Nothing here
@@ -117,14 +118,84 @@ def free(letter):
 
 
 @lru_cache(maxsize=64)
-def coming_soon():
-    """What the Lesson button shows until lessons are built."""
+def lesson(word, index, feedback):
+    """A lesson: the word across the top, the letter being signed boxed, and the feedback.
+
+    word: the letters to sign ("HELLO"). index: which one is being signed now (0 = the first).
+    feedback: CORRECT!, HOLD STEADY, ADJUST: [finger], TRY AGAIN, or a reminder to sign a letter again.
+    Letters already signed are filled in; the current one is boxed. Long words (the alphabet)
+    show the 9 letters around the current one.
+    """
     image, draw = new_screen()
-    title_bar(draw, "LESSONS")
-    text_in(draw, "Coming soon", (2, 15, WIDTH - 3, 40), 14)
-    buttons = {"back": (37, 45, 90, 61)}
+    title_bar(draw, f"SPELL: {word}")
+    start = max(0, min(index - 4, len(word) - 9))         # at most 9 letters fit across the screen
+    shown = word[start:start + 9]
+    cell = min(18, (WIDTH - 4) // len(shown))
+    left = (WIDTH - cell * len(shown)) // 2
+    for i, letter in enumerate(shown):
+        box = (left + i * cell + 1, 14, left + (i + 1) * cell - 1, 29)
+        if start + i < index:                             # done: filled in
+            draw.rectangle(box, fill=ON)
+            text_in(draw, letter, box, 12, fill=OFF)
+        else:
+            if start + i == index:                        # signing now: boxed
+                draw.rectangle(box, outline=ON)
+            text_in(draw, letter, box, 12)
+    text_in(draw, feedback, (2, 31, WIDTH - 3, 45), 12)
+    buttons = {"menu": (1, 47, 42, 63), "skip": (85, 47, 126, 63)}
+    button(draw, buttons["menu"], "Menu")
+    button(draw, buttons["skip"], "Skip")
+    return Screen(image, buttons, f"Lesson {word}, letter {index + 1} ({word[index]}): {feedback}  [Menu] [Skip]")
+
+
+@lru_cache(maxsize=64)
+def lesson_done(word):
+    """The end of a lesson: every letter signed."""
+    image, draw = new_screen()
+    title_bar(draw, f"SPELL: {word}")
+    text_in(draw, "Complete!", (2, 15, WIDTH - 3, 40), 14)
+    buttons = {"menu": (1, 45, 60, 61), "again": (67, 45, 126, 61)}
+    button(draw, buttons["menu"], "Menu")
+    button(draw, buttons["again"], "Again")
+    return Screen(image, buttons, f"Lesson {word}: complete  [Menu] [Again]")
+
+
+ROWS = 3                                           # lessons per page: 3 rows of finger-sized buttons fit
+
+
+@lru_cache(maxsize=64)
+def lessons(names, top=0):
+    """The lesson list: [Back], then one button per lesson (settings.LESSONS), 3 at a time.
+
+    names: the lesson names, as a tuple. top: the first one shown (0, 3, 6...).
+    With more than 3 lessons, up and down arrows scroll; a hollow arrow can't go further that way.
+    Each lesson's button is named after it in lowercase ("hello"), so the simulator can type it.
+    """
+    image, draw = new_screen()
+    buttons = {"back": (0, 0, 40, 14)}
     button(draw, buttons["back"], "Back")
-    return Screen(image, buttons, "Lessons: coming soon  [Back]")
+    text_in(draw, "LESSONS", (44, 0, WIDTH - 1, 14), 11)
+    draw.line((0, 15, WIDTH - 1, 15), fill=ON)
+    scrolls = len(names) > ROWS
+    right = 102 if scrolls else WIDTH - 1              # leave room for the arrows
+    shown = names[top:top + ROWS]
+    for i, name in enumerate(shown):
+        y0 = 17 + i * 16
+        buttons[name.lower()] = (0, y0, right, y0 + 14)
+        button(draw, buttons[name.lower()], name, 11)
+    if scrolls:
+        for name, box, can_move in [("up", (105, 17, 127, 39), top > 0),
+                                    ("down", (105, 41, 127, 63), top + ROWS < len(names))]:
+            x0, y0, x1, y1 = box
+            draw.rounded_rectangle(box, radius=2, outline=ON)
+            cx, cy = (x0 + x1) // 2, (y0 + y1) // 2
+            tip = -5 if name == "up" else 5
+            draw.polygon([(cx, cy + tip), (cx - 6, cy - tip * 4 // 5), (cx + 6, cy - tip * 4 // 5)],
+                         fill=ON if can_move else None, outline=ON)
+            if can_move:
+                buttons[name] = box
+    arrows = " [up] [down]" if scrolls else ""
+    return Screen(image, buttons, "Lessons: [Back] " + " ".join(f"[{n}]" for n in shown) + arrows)
 
 
 def calibrating(prompt, step, progress, total=2):

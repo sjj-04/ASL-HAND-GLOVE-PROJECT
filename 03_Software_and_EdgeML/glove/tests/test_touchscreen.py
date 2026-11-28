@@ -31,7 +31,10 @@ TEST_REFERENCES = {"A": [0.1, 1.0, 1.0, 1.0, 1.0], "B": [0.9, 0.0, 0.0, 0.0, 0.0
 
 def all_screens():
     return [screens.home(26), screens.home(1), screens.free("B"), screens.free("U/V/R/H"), screens.free(None),
-            screens.coming_soon(), screens.calibrating("Hold hand FLAT", 1, 0.5),
+            screens.lesson("HELLO", 2, "ADJUST: Thumb"), screens.lesson("ABCDEFGHIJKLMNOPQRSTUVWXYZ", 20, "TRY AGAIN"),
+            screens.lesson_done("HELLO"), screens.lessons(("Hello", "Alphabet", "Zion")),
+            screens.lessons(("Hello", "Alphabet", "Zion", "Thank you", "Name"), 3),
+            screens.calibrating("Hold hand FLAT", 1, 0.5),
             screens.message("Calibration", "saved"), screens.touch_test((10, 10), (500, 600))]
 
 
@@ -280,7 +283,8 @@ class HomeAppTest(unittest.TestCase):
         push = self.lcd._push                              # every screen that reaches the LCD, in order
         self.lcd._push = lambda screen: (self.shown.append(screen.summary), push(screen))
         self.app = home.HomeApp(InstantSampler(MockMCP3208(self.hand)), self.lcd, self.touch,
-                                Path(self.folder.name) / "cal.json", imu=self.imu, sleep=self.clock.sleep)
+                                Path(self.folder.name) / "cal.json", imu=self.imu, sleep=self.clock.sleep,
+                                clock=self.clock.monotonic)
 
     def screen(self):
         return self.lcd.current.summary
@@ -338,14 +342,81 @@ class HomeAppTest(unittest.TestCase):
         self.assertIn("Free mode: A  [Menu] [Recal]", self.shown[recal_at:])
         self.assertIsNot(self.app.calibration, old)
 
-    def test_lesson_button_and_back(self):
+    def use_lesson(self, word):
+        """Run this word as the lesson (the test REFERENCES only have A, B and C)."""
+        for name, value in [("LESSONS", {"Test": word}), ("DEFAULT_LESSON", "Test")]:
+            patcher = mock.patch.object(settings, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def test_lesson_spells_the_word_and_a_double_letter_needs_signing_twice(self):
+        self.use_lesson("ABBC")
         self.app.start()
+        self.tap("recal")                                      # calibrate first
+        self.touch.at(0.5, lambda: self.hand.choose("A"))
+        self.touch.at(3.0, lambda: self.hand.choose("B"))      # first B, then keep holding it
+        self.touch.at(8.0, lambda: self.hand.choose("fist"))   # relax...
+        self.touch.at(9.0, lambda: self.hand.choose("B"))      # ...and make B again: the second B
+        self.touch.at(12.0, lambda: self.hand.choose("C"))
+        self.touch.at(16.0, "menu")                            # on the Complete! screen
+        self.touch.at(16.5, "back")                            # the lesson list
+        self.touch.at(0.01, "test")                            # pick the lesson from the list
         self.tap("lesson")
-        self.app.step()
-        self.assertEqual(self.screen(), "Lessons: coming soon  [Back]")
-        self.tap("back")
+        self.assertIn("Lesson ABBC, letter 1 (A): CORRECT!  [Menu] [Skip]", self.shown)
+        self.assertIn("Lesson ABBC, letter 2 (B): CORRECT!  [Menu] [Skip]", self.shown)
+        self.assertIn("Lesson ABBC, letter 3 (B): Relax, then B again  [Menu] [Skip]", self.shown)
+        self.assertIn("Lesson ABBC, letter 4 (C): CORRECT!  [Menu] [Skip]", self.shown)
+        second_b = self.shown.index("Lesson ABBC, letter 3 (B): CORRECT!  [Menu] [Skip]")
+        relaxed = next(i for i, x in enumerate(self.shown) if x.startswith("Lesson ABBC, letter 3 (B): TRY AGAIN"))
+        self.assertLess(relaxed, second_b)                     # the held B only counted after relaxing
+        self.assertIn("Lesson ABBC: complete  [Menu] [Again]", self.shown)
         self.app.step()
         self.assertTrue(self.screen().startswith("Home"))
+
+    def test_lesson_skip_menu_and_again(self):
+        self.use_lesson("AB")
+        self.app.start()
+        self.tap("recal")
+        self.touch.at(0.1, "skip")                             # skip A
+        self.touch.at(0.2, lambda: self.hand.choose("B"))
+        self.touch.at(4.0, "again")                            # Complete!, then start over
+        self.touch.at(4.5, "menu")
+        self.touch.at(5.0, "back")
+        self.touch.at(0.01, "test")
+        self.tap("lesson")
+        self.assertIn("Lesson AB, letter 2 (B): CORRECT!  [Menu] [Skip]", self.shown)
+        self.assertNotIn("Lesson AB, letter 1 (A): CORRECT!  [Menu] [Skip]", self.shown)
+        screens_in_order = [x for i, x in enumerate(self.shown) if i == 0 or x != self.shown[i - 1]]
+        self.assertEqual(screens_in_order.count("Lesson AB: complete  [Menu] [Again]"), 1)
+        menu_at = max(i for i, x in enumerate(self.shown) if x.startswith("Lesson AB, letter"))
+        self.assertTrue(self.shown[menu_at].startswith("Lesson AB, letter 1 (A)"))   # Again went back to A
+        self.assertTrue(self.shown[menu_at + 1].startswith("Lessons: [Back]"))      # Menu: the list
+        self.app.step()
+        self.assertTrue(self.screen().startswith("Home"))
+
+    def test_lesson_list_shows_every_lesson_and_scrolls(self):
+        names = {"One": "A", "Two": "B", "Three": "C", "Four": "A", "Five": "B"}
+        patcher = mock.patch.object(settings, "LESSONS", names)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.app.start()
+        self.touch.at(0.1, "down")
+        self.touch.at(0.2, "up")
+        self.touch.at(0.3, "back")
+        self.tap("lesson")
+        first = "Lessons: [Back] [One] [Two] [Three] [up] [down]"
+        self.assertIn(first, self.shown)
+        self.assertIn("Lessons: [Back] [Four] [Five] [up] [down]", self.shown)
+        self.assertEqual(self.shown.count(first) > 0 and self.shown[-1], first)   # up went back to the top
+        self.app.step()
+        self.assertTrue(self.screen().startswith("Home"))
+
+    def test_lesson_list_arrows_only_scroll_where_there_is_more(self):
+        page_one = screens.lessons(("A1", "A2", "A3", "A4"), 0)
+        self.assertIn("down", page_one.buttons)
+        self.assertNotIn("up", page_one.buttons)             # already at the top
+        self.assertNotIn("up", screens.lessons(("A1", "A2", "A3"), 0).buttons)   # 3 fit: no arrows
+        self.assertEqual(page_one.button_at(50, 24), "a1")
 
     def test_recalibrate_from_home(self):
         self.app.start()
